@@ -12,7 +12,7 @@ interface SalesPredictionsProps {
 
 export default function SalesPredictions({ salesData }: SalesPredictionsProps) {
   // Simulator targets
-  const [targetOmzet, setTargetOmzet] = useState<number>(500000000); // Default 500jt target
+  const [targetOmzet, setTargetOmzet] = useState<number>(600000000); // Default 600jt (Level 1) target
   const [targetOrder, setTargetOrder] = useState<number>(3000); // Default 3000 order target
 
   // Simulator coefficients
@@ -111,8 +111,29 @@ export default function SalesPredictions({ salesData }: SalesPredictionsProps) {
                 type="number"
                 value={targetOmzet}
                 onChange={e => setTargetOmzet(Math.max(0, Number(e.target.value)))}
-                className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-slate-800"
+                className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-slate-800 font-mono"
               />
+              {/* Presets for 3 Levels */}
+              <div className="flex gap-1.5 pt-1.5">
+                {[
+                  { label: 'Lvl 1 (600M)', val: 600000000 },
+                  { label: 'Lvl 2 (700M)', val: 700000000 },
+                  { label: 'Lvl 3 (800M)', val: 800000000 }
+                ].map(p => (
+                  <button
+                    key={p.val}
+                    type="button"
+                    onClick={() => setTargetOmzet(p.val)}
+                    className={`flex-1 px-2 py-1 rounded-lg text-[9px] font-black transition-all border ${
+                      targetOmzet === p.val
+                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                        : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-1">

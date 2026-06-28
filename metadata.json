@@ -1,0 +1,6 @@
+{
+  "name": "by-analyzer Sales Dashboard",
+  "description": "Aplikasi interaktif untuk menganalisis dan memantau data penjualan harian toko dari Google Sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

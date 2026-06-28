@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { DailySales, ChartTab } from '../types';
-import { formatRupiahCompact, formatNumberIndo } from '../utils';
+import { formatRupiahCompact, formatNumberIndo, formatRupiah } from '../utils';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
   CartesianGrid, Tooltip, Legend, BarChart, Bar, LineChart, Line,
   ReferenceLine
 } from 'recharts';
-import { BarChart3, LineChart as LucideLineChart, HelpCircle, Activity, Sparkles, Calendar } from 'lucide-react';
+import { BarChart3, LineChart as LucideLineChart, HelpCircle, Activity, Sparkles, Calendar, Target, Trophy, AlertTriangle, TrendingUp } from 'lucide-react';
 
 // Static definitions for H1 2026 Holidays in Indonesia
 const INDONESIAN_HOLIDAYS = [
@@ -42,6 +42,54 @@ export default function SalesCharts({ salesData }: SalesChartsProps) {
   // Toggle states for Holiday markers
   const [showNationalHolidays, setShowNationalHolidays] = useState<boolean>(true);
   const [showBalineseHolidays, setShowBalineseHolidays] = useState<boolean>(true);
+
+  // Target Sales states with localStorage persistence
+  const [targetSales, setTargetSales] = useState<number>(() => {
+    const saved = localStorage.getItem('dailyTargetSales');
+    return saved ? parseInt(saved, 10) : 15000000; // default 15 Million Rp
+  });
+  const [showTargetLine, setShowTargetLine] = useState<boolean>(() => {
+    const saved = localStorage.getItem('showTargetLine');
+    return saved !== 'false';
+  });
+
+  const handleTargetSalesChange = (val: number) => {
+    setTargetSales(val);
+    localStorage.setItem('dailyTargetSales', val.toString());
+  };
+
+  const handleShowTargetLineChange = (val: boolean) => {
+    setShowTargetLine(val);
+    localStorage.setItem('showTargetLine', val.toString());
+  };
+
+  // Calculate real-time target metrics
+  const targetStats = useMemo(() => {
+    if (salesData.length === 0) {
+      return { countExceeded: 0, pctExceeded: 0, avgDaily: 0, achievementRate: 0 };
+    }
+    
+    let countExceeded = 0;
+    let totalAllSum = 0;
+    
+    salesData.forEach(day => {
+      totalAllSum += day.totalAll;
+      if (day.totalAll >= targetSales) {
+        countExceeded++;
+      }
+    });
+    
+    const avgDaily = totalAllSum / salesData.length;
+    const pctExceeded = (countExceeded / salesData.length) * 100;
+    const achievementRate = targetSales > 0 ? (avgDaily / targetSales) * 100 : 0;
+    
+    return {
+      countExceeded,
+      pctExceeded: parseFloat(pctExceeded.toFixed(1)),
+      avgDaily: Math.round(avgDaily),
+      achievementRate: parseFloat(achievementRate.toFixed(1))
+    };
+  }, [salesData, targetSales]);
 
   const aggregatedData = useMemo(() => {
     if (timeScale === 'daily') {
@@ -293,6 +341,134 @@ export default function SalesCharts({ salesData }: SalesChartsProps) {
         )}
       </div>
 
+      {/* Target Sales Controller and Real-time Analytics Panel */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 bg-indigo-50/30 border border-indigo-100/60 p-5 rounded-2xl">
+        
+        {/* Left column: Setup target */}
+        <div className="space-y-3 lg:col-span-1">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl border border-indigo-200/50 shrink-0">
+              <Target className="w-4 h-4 animate-pulse" />
+            </div>
+            <div>
+              <h4 className="text-[10px] font-black uppercase text-slate-800 tracking-wider leading-none">Target Penjualan Harian</h4>
+              <p className="text-[9.5px] text-slate-400 font-bold mt-1">Konfigurasi sasaran omzet harian Anda</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">Rp</span>
+              <input
+                type="text"
+                value={targetSales === 0 ? '' : formatNumberIndo(targetSales)}
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/[^0-9]/g, '');
+                  const num = cleaned ? parseInt(cleaned, 10) : 0;
+                  handleTargetSalesChange(num);
+                }}
+                placeholder="Masukkan target..."
+                className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-xs font-mono font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
+              />
+            </div>
+            
+            <button
+              onClick={() => handleShowTargetLineChange(!showTargetLine)}
+              className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5 shrink-0 ${
+                showTargetLine
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                  : 'bg-white border-slate-200 text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {showTargetLine ? 'Aktif' : 'Sembunyi'}
+            </button>
+          </div>
+
+          {/* Quick presets */}
+          <div className="flex flex-wrap gap-1.5">
+            {[5000000, 10000000, 15000000, 20000000, 25000000].map((preset) => (
+              <button
+                key={preset}
+                onClick={() => handleTargetSalesChange(preset)}
+                className={`px-2.5 py-1 rounded-lg text-[9px] font-black tracking-wide border transition-all ${
+                  targetSales === preset
+                    ? 'bg-indigo-100 border-indigo-300 text-indigo-700 font-extrabold'
+                    : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                {preset / 1000000}M
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Right Columns: Target Performance Analytics (Interactive KPI block) */}
+        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t lg:border-t-0 lg:border-l border-indigo-100/60 pt-4 lg:pt-0 lg:pl-5">
+          
+          {/* KPI 1: Days Exceeded count */}
+          <div className="bg-white/60 p-4 rounded-xl border border-slate-100/80 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none block">Target Tercapai</span>
+              <div className="flex items-baseline gap-1 mt-1.5">
+                <span className="text-xl font-black text-slate-800 leading-none">{targetStats.countExceeded}</span>
+                <span className="text-[10px] text-slate-400 font-extrabold">/ {salesData.length} Hari</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${targetStats.pctExceeded >= 50 ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+              <span className="text-[10px] font-extrabold text-slate-600">{targetStats.pctExceeded}% Tingkat Sukses</span>
+            </div>
+          </div>
+
+          {/* KPI 2: Target Achievement Rate */}
+          <div className="bg-white/60 p-4 rounded-xl border border-slate-100/80 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none block">Rerata Capaian</span>
+              <div className="flex items-baseline gap-1 mt-1.5">
+                <span className="text-xl font-black text-indigo-600 leading-none">{targetStats.achievementRate}%</span>
+              </div>
+            </div>
+            <p className="text-[9.5px] font-semibold text-slate-400 mt-2">
+              Rerata Harian: <strong className="text-slate-600 font-bold">{formatRupiahCompact(targetStats.avgDaily)}</strong>
+            </p>
+          </div>
+
+          {/* KPI 3: Status / Advice */}
+          <div className="bg-white/60 p-4 rounded-xl border border-slate-100/80 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none block">Status Performa</span>
+              <div className="flex items-center gap-1.5 mt-2">
+                {targetStats.pctExceeded >= 60 ? (
+                  <>
+                    <Trophy className="w-4 h-4 text-emerald-500 shrink-0 animate-bounce" />
+                    <span className="text-xs font-black text-emerald-600">Sangat Bagus!</span>
+                  </>
+                ) : targetStats.pctExceeded >= 30 ? (
+                  <>
+                    <TrendingUp className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span className="text-xs font-black text-indigo-600">Stabil &amp; Sehat</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span className="text-xs font-black text-amber-600">Perlu Optimasi</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <p className="text-[9.5px] font-semibold text-slate-400 mt-1 leading-normal">
+              {targetStats.pctExceeded >= 60 
+                ? 'Mayoritas hari telah melampaui target harian.' 
+                : targetStats.pctExceeded >= 30 
+                ? 'Performa harian cukup stabil mendekati target.' 
+                : 'Pertimbangkan promo taktis untuk menaikkan penjualan.'}
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+
       {/* Main Chart Area */}
       <div className="h-[400px] w-full relative">
         {aggregatedData.length > 0 ? (
@@ -313,6 +489,25 @@ export default function SalesCharts({ salesData }: SalesChartsProps) {
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11, fontWeight: 'bold', paddingTop: 10 }} />
                 <Area type="monotone" name="Total Omzet Penjualan" dataKey="totalAll" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorTotal)" />
                 
+                {/* Daily Target Reference Line */}
+                {showTargetLine && targetSales > 0 && (
+                  <ReferenceLine
+                    y={targetSales}
+                    stroke="#4f46e5"
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    label={{
+                      value: `Target: ${formatRupiahCompact(targetSales)}`,
+                      position: 'insideBottomLeft',
+                      fill: '#4338ca',
+                      fontSize: 10,
+                      fontWeight: 'black',
+                      dy: -4,
+                      dx: 12
+                    }}
+                  />
+                )}
+
                 {/* Overlay Holiday Reference Lines */}
                 {visibleHolidays.map(holiday => (
                   <ReferenceLine
@@ -342,6 +537,25 @@ export default function SalesCharts({ salesData }: SalesChartsProps) {
                 <Bar dataKey="totalManual" name="Manual Sales" stackId="a" fill="#f59e0b" maxBarSize={45} />
                 <Bar dataKey="totalReguler" name="Reguler Sales" stackId="a" fill="#3b82f6" maxBarSize={45} />
                 <Bar dataKey="totalInstan" name="Instan Sales" stackId="a" fill="#10b981" radius={[5, 5, 0, 0]} maxBarSize={45} />
+
+                {/* Daily Target Reference Line */}
+                {showTargetLine && targetSales > 0 && (
+                  <ReferenceLine
+                    y={targetSales}
+                    stroke="#4f46e5"
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    label={{
+                      value: `Target: ${formatRupiahCompact(targetSales)}`,
+                      position: 'insideBottomLeft',
+                      fill: '#4338ca',
+                      fontSize: 10,
+                      fontWeight: 'black',
+                      dy: -4,
+                      dx: 12
+                    }}
+                  />
+                )}
 
                 {/* Overlay Holiday Reference Lines */}
                 {visibleHolidays.map(holiday => (

@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
 import { DailySales } from '../types';
-import { formatRupiah, formatNumberIndo, formatRupiahCompact } from '../utils';
+import { formatRupiah, formatNumberIndo, formatRupiahCompact, formatDateIndo } from '../utils';
 import { 
   TrendingUp, ShoppingCart, Award, Sparkles, DollarSign,
-  ArrowUpRight, BarChart3, HelpCircle, Activity, ShoppingBag
+  ArrowUpRight, BarChart3, HelpCircle, Activity, ShoppingBag,
+  ArrowUp, ArrowDown
 } from 'lucide-react';
 
 interface SalesSummaryProps {
@@ -121,11 +122,101 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
   const bestDayName = stats.dowStats[0]?.dayName;
   const worstDayName = stats.dowStats[stats.dowStats.length - 1]?.dayName;
 
+  const todayComparison = useMemo(() => {
+    if (salesData.length === 0) return null;
+
+    // Chronologically sort data to find the latest day
+    const sorted = [...salesData].sort((a, b) => a.date.localeCompare(b.date));
+    const latestDay = sorted[sorted.length - 1];
+
+    // Get preceding 7 days
+    const preceding7Days = sorted.slice(Math.max(0, sorted.length - 8), sorted.length - 1);
+    
+    if (preceding7Days.length === 0) {
+      return {
+        latestDay,
+        avgPrev7Days: 0,
+        diffVal: 0,
+        diffPct: 0,
+        isHigher: false,
+        isEqual: true,
+        hasHistory: false
+      };
+    }
+
+    const totalPrev7Days = preceding7Days.reduce((sum, d) => sum + d.totalAll, 0);
+    const avgPrev7Days = totalPrev7Days / preceding7Days.length;
+    const diffVal = latestDay.totalAll - avgPrev7Days;
+    const diffPct = avgPrev7Days > 0 ? (diffVal / avgPrev7Days) * 100 : 0;
+
+    return {
+      latestDay,
+      avgPrev7Days,
+      diffVal,
+      diffPct,
+      isHigher: diffVal > 0,
+      isEqual: diffVal === 0,
+      hasHistory: true
+    };
+  }, [salesData]);
+
   return (
     <div className="space-y-6">
       {/* Prime KPI Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
         
+        {/* KPI 0: Today's Sales with Trend Arrow */}
+        {todayComparison && (
+          <div className="relative overflow-hidden bg-white rounded-3xl p-6 shadow-sm border border-slate-200 group hover:shadow-md transition-all duration-300">
+            <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full bg-rose-50/50 opacity-40 group-hover:scale-125 transition-all duration-500 blur-2xl"></div>
+            <div className="relative z-10 flex flex-col justify-between h-full">
+              <div className="flex justify-between items-start mb-4">
+                <div className="p-3 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] bg-rose-100 text-rose-800 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider">Omzet Hari Ini</span>
+              </div>
+              <div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                  {formatDateIndo(todayComparison.latestDay.date)}
+                </p>
+                <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-none font-mono">
+                  {formatRupiah(todayComparison.latestDay.totalAll)}
+                </h3>
+                
+                {/* Arrow Trend Indicator */}
+                <div className="mt-3.5 flex items-center gap-1.5 flex-wrap">
+                  {todayComparison.hasHistory ? (
+                    <>
+                      <div className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-[10px] font-black ${
+                        todayComparison.isHigher 
+                          ? 'bg-emerald-100 text-emerald-800' 
+                          : todayComparison.isEqual
+                          ? 'bg-slate-100 text-slate-600'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}>
+                        {todayComparison.isHigher ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        ) : todayComparison.isEqual ? (
+                          <Activity className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                        )}
+                        <span>{Math.abs(todayComparison.diffPct).toFixed(1)}%</span>
+                      </div>
+                      <span className="text-[9px] font-semibold text-slate-400">
+                        vs rerata 7hr: {formatRupiahCompact(todayComparison.avgPrev7Days)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-[9px] text-slate-400 font-bold">Data histoy minim</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* KPI 1: Total Revenue */}
         <div className="relative overflow-hidden bg-white rounded-3xl p-6 shadow-sm border border-slate-200 group hover:shadow-md transition-all duration-300">
           <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full bg-indigo-50 opacity-40 group-hover:scale-125 transition-all duration-500 blur-2xl"></div>
@@ -340,6 +431,46 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
               <h5 className="text-xl font-black text-rose-950 mt-2">{formatRupiah(stats.minSales)}</h5>
               <p className="text-[10px] text-slate-500 font-semibold mt-1">Omzet landai. Periksa ketersediaan tim atau ada penutupan toko.</p>
             </div>
+
+            {/* Today's Sales Trend Detailed */}
+            {todayComparison && (
+              <div className={`p-4 rounded-2xl flex flex-col justify-between relative overflow-hidden border ${
+                todayComparison.isHigher 
+                  ? 'bg-emerald-50/30 border-emerald-100' 
+                  : todayComparison.isEqual
+                  ? 'bg-slate-50 border-slate-200/60'
+                  : 'bg-rose-50/30 border-rose-100'
+              }`}>
+                <div className="flex justify-between items-start">
+                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${
+                    todayComparison.isHigher 
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200/30' 
+                      : todayComparison.isEqual
+                      ? 'bg-slate-100 text-slate-600 border border-slate-200/30'
+                      : 'bg-rose-100 text-rose-800 border border-rose-200/30'
+                  }`}>
+                    Perbandingan Hari Ini (Terbaru)
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-bold">{todayComparison.latestDay.date}</span>
+                </div>
+                <h5 className="text-xl font-black text-slate-800 mt-2 font-mono">
+                  {formatRupiah(todayComparison.latestDay.totalAll)}
+                </h5>
+                <p className="text-[10px] text-slate-500 font-semibold mt-1.5 leading-relaxed">
+                  {todayComparison.hasHistory ? (
+                    <>
+                      Omzet hari ini tercatat{' '}
+                      <strong className={todayComparison.isHigher ? 'text-emerald-600 font-extrabold' : 'text-rose-600 font-extrabold'}>
+                        {Math.abs(todayComparison.diffPct).toFixed(1)}% {todayComparison.isHigher ? 'lebih tinggi' : 'lebih rendah'}
+                      </strong>{' '}
+                      dari rerata 7 hari sebelumnya (<span className="font-bold text-slate-700">{formatRupiahCompact(todayComparison.avgPrev7Days)}</span>).
+                    </>
+                  ) : (
+                    'Data riwayat harian sebelumnya tidak mencukupi untuk kalkulasi rerata 7 hari.'
+                  )}
+                </p>
+              </div>
+            )}
           </div>
 
           <p className="text-[10px] text-slate-400 font-bold italic mt-4 border-t border-slate-100 pt-3">

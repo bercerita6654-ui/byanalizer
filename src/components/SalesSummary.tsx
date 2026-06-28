@@ -247,7 +247,7 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
                   {formatDateIndo(todayComparison.latestDay.date)}
                 </p>
-                <h3 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight leading-none font-mono">
+                <h3 className="text-xl min-[400px]:text-2xl sm:text-3xl lg:text-lg xl:text-[15px] 2xl:text-xl font-black text-slate-800 tracking-tighter leading-none font-mono whitespace-nowrap overflow-x-auto py-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                   {formatRupiah(todayComparison.latestDay.totalAll)}
                 </h3>
                 
@@ -271,8 +271,8 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
                         )}
                         <span>{Math.abs(todayComparison.diffPct).toFixed(1)}%</span>
                       </div>
-                      <span className="text-[11px] sm:text-xs font-bold text-slate-400">
-                        vs rerata 7hr: <span className="font-mono text-slate-500 font-black">{formatRupiahCompact(todayComparison.avgPrev7Days)}</span>
+                      <span className="text-xs font-bold text-slate-400">
+                        vs rerata: <span className="font-mono text-slate-500 font-black">{formatRupiahCompact(todayComparison.avgPrev7Days)}</span>
                       </span>
                     </>
                   ) : (
@@ -296,7 +296,7 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
             </div>
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Akumulasi Penjualan</p>
-              <h3 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight leading-none font-mono break-all sm:break-normal">
+              <h3 className="text-xl min-[400px]:text-2xl sm:text-3xl lg:text-lg xl:text-[15px] 2xl:text-xl font-black text-slate-800 tracking-tighter leading-none font-mono whitespace-nowrap overflow-x-auto py-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 {formatRupiah(stats.totalSales)}
               </h3>
               <p className="text-xs font-bold text-slate-400 mt-3.5">Dari total <span className="text-indigo-600 font-black font-mono">{salesData.length}</span> hari operasional</p>
@@ -316,7 +316,7 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
             </div>
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Total Order</p>
-              <h3 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight leading-none font-mono">
+              <h3 className="text-lg sm:text-2xl font-black text-slate-800 tracking-tight leading-none font-mono">
                 {formatNumberIndo(stats.totalTx)} <span className="text-xs sm:text-sm font-black text-slate-400">Tx</span>
               </h3>
               <p className="text-[10px] sm:text-xs font-bold text-slate-400 mt-3.5">Rerata <span className="text-emerald-600 font-black font-mono">{Math.round(stats.avgDailyTx)}</span> / hari</p>
@@ -336,7 +336,7 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
             </div>
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Omzet / Hari</p>
-              <h3 className="text-lg sm:text-xl xl:text-2xl font-black text-slate-800 tracking-tight leading-none font-mono">
+              <h3 className="text-base min-[360px]:text-lg sm:text-xl xl:text-[14px] 2xl:text-lg font-black text-slate-800 tracking-tighter leading-none font-mono whitespace-nowrap overflow-x-auto py-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 {formatRupiah(stats.avgDailySales)}
               </h3>
               <p className="text-[10px] sm:text-xs font-bold text-slate-400 mt-3.5">AOV <span className="text-amber-600 font-black font-mono">{formatRupiahCompact(stats.aov)}</span></p>
@@ -370,17 +370,17 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
 
       {/* Target Penjualan Berjenjang (3 Level) Tracker */}
       <div className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-200 shadow-sm space-y-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <Trophy className="w-4.5 h-4.5 text-amber-500 animate-pulse" />
+            <h4 className="text-xs sm:text-sm font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-amber-500 animate-pulse shrink-0" />
               Target Penjualan Berjenjang (3 Level) - Bulanan
             </h4>
-            <p className="text-[11px] text-slate-400 font-bold mt-1">Sistem target omzet bulanan berkala untuk melacak pencapaian performa toko per bulan.</p>
+            <p className="text-xs text-slate-500 font-semibold mt-1">Sistem target omzet bulanan berkala untuk melacak pencapaian performa toko per bulan.</p>
           </div>
-          <div className="bg-slate-50 border border-slate-100 px-3.5 py-1.5 rounded-xl text-right w-full md:w-auto">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block leading-none">Omzet Terpilih ({selectedMonthInfo.label})</span>
-            <span className="text-base font-black text-slate-800 font-mono leading-none">{formatRupiah(selectedMonthInfo.totalSales)}</span>
+          <div className="bg-slate-50 border border-slate-200 px-4 py-2 rounded-2xl text-left md:text-right w-full md:w-auto shrink-0 shadow-inner">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block leading-none mb-1">Omzet Terpilih ({selectedMonthInfo.label})</span>
+            <span className="text-lg font-black text-slate-800 font-mono leading-none block">{formatRupiah(selectedMonthInfo.totalSales)}</span>
           </div>
         </div>
 
@@ -392,15 +392,15 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
                 key={month.yearMonth}
                 type="button"
                 onClick={() => setSelectedTargetMonth(month.yearMonth)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all flex items-center gap-1.5 shrink-0 ${
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all flex items-center gap-2 shrink-0 ${
                   selectedTargetMonth === month.yearMonth
                     ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
                     : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-800'
                 }`}
               >
-                <Calendar className="w-3.5 h-3.5" />
+                <Calendar className="w-4 h-4" />
                 <span>{month.label}</span>
-                <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded-lg ${
+                <span className={`ml-1 text-[11px] font-bold px-2 py-0.5 rounded-lg ${
                   selectedTargetMonth === month.yearMonth
                     ? 'bg-indigo-700/85 text-indigo-50'
                     : 'bg-slate-200 text-slate-600 font-mono'
@@ -427,7 +427,7 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
               style={{ left: `${(600000000 / 850000000) * 100}%` }}
             >
               <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 600000000 ? 'bg-indigo-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
-              <span className="text-[8px] font-black text-slate-400 mt-5 absolute whitespace-nowrap">Lvl 1 (600M)</span>
+              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 1 (600M)</span>
             </div>
 
             {/* Level 2 pin */}
@@ -436,7 +436,7 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
               style={{ left: `${(700000000 / 850000000) * 100}%` }}
             >
               <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 700000000 ? 'bg-purple-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
-              <span className="text-[8px] font-black text-slate-400 mt-5 absolute whitespace-nowrap">Lvl 2 (700M)</span>
+              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 2 (700M)</span>
             </div>
 
             {/* Level 3 pin */}
@@ -445,11 +445,11 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
               style={{ left: `${(800000000 / 850000000) * 100}%` }}
             >
               <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 800000000 ? 'bg-amber-500 border-white animate-bounce' : 'bg-white border-slate-300'} shadow-sm z-10`} />
-              <span className="text-[8px] font-black text-slate-400 mt-5 absolute whitespace-nowrap">Lvl 3 (800M)</span>
+              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 3 (800M)</span>
             </div>
           </div>
           {/* Spacer for label heights */}
-          <div className="h-4" />
+          <div className="h-6" />
         </div>
 
         {/* Level Cards */}
@@ -640,7 +640,9 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
                 <span className="text-[10px] font-black uppercase text-emerald-600 bg-emerald-100 px-2.5 py-0.5 rounded-md border border-emerald-200/40">Instan</span>
                 <span className="text-xs font-bold text-emerald-700">{stats.channelSplit.instan.pct.toFixed(1)}%</span>
               </div>
-              <p className="text-xl font-black text-emerald-950 font-mono">{formatRupiah(stats.channelSplit.instan.sales)}</p>
+              <p className="text-lg sm:text-xl lg:text-base xl:text-lg font-black text-emerald-950 font-mono tracking-tight whitespace-nowrap overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {formatRupiah(stats.channelSplit.instan.sales)}
+              </p>
             </div>
             <div className="border-t border-emerald-100 pt-3 mt-3 flex justify-between text-xs font-bold text-emerald-800">
               <span>Transaksi:</span>
@@ -655,7 +657,9 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
                 <span className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-100 px-2.5 py-0.5 rounded-md border border-indigo-200/40">Reguler</span>
                 <span className="text-xs font-bold text-indigo-700">{stats.channelSplit.reguler.pct.toFixed(1)}%</span>
               </div>
-              <p className="text-xl font-black text-indigo-950 font-mono">{formatRupiah(stats.channelSplit.reguler.sales)}</p>
+              <p className="text-lg sm:text-xl lg:text-base xl:text-lg font-black text-indigo-950 font-mono tracking-tight whitespace-nowrap overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {formatRupiah(stats.channelSplit.reguler.sales)}
+              </p>
             </div>
             <div className="border-t border-indigo-100 pt-3 mt-3 flex justify-between text-xs font-bold text-indigo-800">
               <span>Transaksi:</span>
@@ -670,7 +674,9 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
                 <span className="text-[10px] font-black uppercase text-amber-600 bg-amber-100 px-2.5 py-0.5 rounded-md border border-amber-200/40">Manual</span>
                 <span className="text-xs font-bold text-amber-700">{stats.channelSplit.manual.pct.toFixed(1)}%</span>
               </div>
-              <p className="text-xl font-black text-amber-950 font-mono">{formatRupiah(stats.channelSplit.manual.sales)}</p>
+              <p className="text-lg sm:text-xl lg:text-base xl:text-lg font-black text-amber-950 font-mono tracking-tight whitespace-nowrap overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {formatRupiah(stats.channelSplit.manual.sales)}
+              </p>
             </div>
             <div className="border-t border-amber-100 pt-3 mt-3 flex justify-between text-xs font-bold text-amber-800">
               <span>Transaksi:</span>
@@ -742,8 +748,8 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
         {/* Highlight Day Records */}
         <div className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-200 shadow-sm flex flex-col justify-between">
           <div className="space-y-4 w-full">
-            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <ArrowUpRight className="w-4.5 h-4.5 text-indigo-500" />
+            <h4 className="text-xs sm:text-sm font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+              <ArrowUpRight className="w-5 h-5 text-indigo-500" />
               Rekor Penjualan Tertinggi & Terendah
             </h4>
 
@@ -751,21 +757,25 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
               {/* Max Sales */}
               <div className="p-4 bg-emerald-50/40 border border-emerald-100 rounded-2xl flex flex-col justify-between relative overflow-hidden">
                 <div className="flex justify-between items-start">
-                  <span className="text-[9px] font-black uppercase text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-md">Puncak Rekor</span>
-                  <span className="text-[10px] text-slate-400 font-bold font-mono">{stats.maxSalesDate}</span>
+                  <span className="text-[10px] font-bold uppercase text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">Puncak Rekor</span>
+                  <span className="text-xs text-slate-400 font-bold font-mono">{stats.maxSalesDate}</span>
                 </div>
-                <h5 className="text-lg sm:text-xl font-black text-emerald-950 mt-2 font-mono">{formatRupiah(stats.maxSales)}</h5>
-                <p className="text-[10px] text-slate-500 font-semibold mt-1">Sangat menguntungkan! Hubungkan jadwal ini dengan promo terlapir.</p>
+                <h5 className="text-base sm:text-lg xl:text-xl font-black text-emerald-950 mt-2 font-mono tracking-tight whitespace-nowrap overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                  {formatRupiah(stats.maxSales)}
+                </h5>
+                <p className="text-xs text-slate-500 font-semibold mt-1">Sangat menguntungkan! Hubungkan jadwal ini dengan promo terlapir.</p>
               </div>
 
               {/* Min Sales */}
               <div className="p-4 bg-rose-50/40 border border-rose-100 rounded-2xl flex flex-col justify-between relative overflow-hidden">
                 <div className="flex justify-between items-start">
-                  <span className="text-[9px] font-black uppercase text-rose-600 bg-rose-100 px-2 py-0.5 rounded-md">Titik Terendah</span>
-                  <span className="text-[10px] text-slate-400 font-bold font-mono">{stats.minSalesDate}</span>
+                  <span className="text-[10px] font-bold uppercase text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md">Titik Terendah</span>
+                  <span className="text-xs text-slate-400 font-bold font-mono">{stats.minSalesDate}</span>
                 </div>
-                <h5 className="text-lg sm:text-xl font-black text-rose-950 mt-2 font-mono">{formatRupiah(stats.minSales)}</h5>
-                <p className="text-[10px] text-slate-500 font-semibold mt-1">Omzet landai. Periksa ketersediaan tim atau ada penutupan toko.</p>
+                <h5 className="text-base sm:text-lg xl:text-xl font-black text-rose-950 mt-2 font-mono tracking-tight whitespace-nowrap overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                  {formatRupiah(stats.minSales)}
+                </h5>
+                <p className="text-xs text-slate-500 font-semibold mt-1">Omzet landai. Periksa ketersediaan tim atau ada penutupan toko.</p>
               </div>
 
               {/* Today's Sales Trend Detailed */}
@@ -778,7 +788,7 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
                     : 'bg-rose-50/30 border-rose-100'
                 }`}>
                   <div className="flex justify-between items-start">
-                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
                       todayComparison.isHigher 
                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-200/30' 
                         : todayComparison.isEqual
@@ -787,22 +797,22 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
                     }`}>
                       Perbandingan Hari Ini
                     </span>
-                    <span className="text-[10px] text-slate-400 font-bold font-mono">{todayComparison.latestDay.date}</span>
+                    <span className="text-xs text-slate-400 font-bold font-mono">{todayComparison.latestDay.date}</span>
                   </div>
-                  <h5 className="text-lg sm:text-xl font-black text-slate-800 mt-2 font-mono">
+                  <h5 className="text-base sm:text-lg xl:text-xl font-black text-slate-800 mt-2 font-mono tracking-tight whitespace-nowrap overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                     {formatRupiah(todayComparison.latestDay.totalAll)}
                   </h5>
-                  <p className="text-[10px] text-slate-500 font-semibold mt-1.5 leading-relaxed">
+                  <p className="text-xs text-slate-500 font-semibold mt-1.5 leading-relaxed">
                     {todayComparison.hasHistory ? (
                       <>
                         Omzet hari ini tercatat{' '}
                         <strong className={todayComparison.isHigher ? 'text-emerald-600 font-extrabold' : 'text-rose-600 font-extrabold'}>
                           {Math.abs(todayComparison.diffPct).toFixed(1)}% {todayComparison.isHigher ? 'lebih tinggi' : 'lebih rendah'}
                         </strong>{' '}
-                        dari rerata 7 hari sebelumnya (<span className="font-bold text-slate-700">{formatRupiahCompact(todayComparison.avgPrev7Days)}</span>).
+                        dari rerata harian sebelumnya (<span className="font-bold text-slate-700">{formatRupiahCompact(todayComparison.avgPrev7Days)}</span>).
                       </>
                     ) : (
-                      'Data riwayat harian sebelumnya tidak mencukupi untuk kalkulasi rerata 7 hari.'
+                      'Data riwayat harian sebelumnya tidak mencukupi untuk kalkulasi rerata harian.'
                     )}
                   </p>
                 </div>
@@ -810,7 +820,7 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
             </div>
           </div>
 
-          <p className="text-[10px] text-slate-400 font-bold italic mt-4 border-t border-slate-100 pt-3">
+          <p className="text-[11px] text-slate-400 font-semibold italic mt-4 border-t border-slate-100 pt-3">
             Analisis data historis ini didasarkan sepenuhnya dari Google Sheet "Penjualan Harian".
           </p>
         </div>

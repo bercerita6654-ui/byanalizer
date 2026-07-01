@@ -409,6 +409,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
   const reportRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportStep, setExportStep] = useState<string>('');
+  const [activeExportIndex, setActiveExportIndex] = useState<number>(-1);
 
   useEffect(() => {
     try {
@@ -418,45 +419,15 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     }
   }, []);
 
-  // Handlers
-  const handlePrint = () => {
-    const originalTitle = document.title;
-    const formattedMonth = formatMonthLabel(selectedMonth);
-    // Set document title exactly as requested so standard print uses it as the file name
-    document.title = `Laporan Penjualan (${formattedMonth})`;
-    window.focus();
-    window.print();
-    // Restore original title shortly after
-    setTimeout(() => {
-      document.title = originalTitle;
-    }, 1000);
-  };
-
-  const handleDownloadPDF = async () => {
+  const executeMonthPDFDownload = async (monthLabel: string) => {
     if (!reportRef.current) return;
-    setIsExporting(true);
-    setExportStep('Menyiapkan tata letak dokumen A4...');
-    
-    // Store original classes to avoid layout breakages
     const originalClassName = reportRef.current.className;
-    const container = reportRef.current.parentElement;
-    const originalScrollTop = container ? container.scrollTop : 0;
     
     try {
-      // Temporarily scroll parent preview container to top to eliminate html2canvas coordinates shift
-      if (container) {
-        container.scrollTop = 0;
-      }
-
-      // Temporarily remove any transforms/scaling from the report container
-      // This is crucial because CSS transform scale causes html2canvas coordinate failures (rendering blank or cut off)
       reportRef.current.className = "flex flex-col gap-8 w-[210mm] min-w-[210mm] select-text bg-white";
-      
-      // Wait a tiny bit for layout reflow
-      await new Promise(resolve => setTimeout(resolve, 150));
+      await new Promise(resolve => setTimeout(resolve, 200));
 
-      const formattedMonth = formatMonthLabel(selectedMonth);
-      const fileName = `Laporan Penjualan (${formattedMonth}).pdf`;
+      const fileName = `Laporan Penjualan (${monthLabel}).pdf`;
       const pdf = new jsPDF({
         orientation: 'p',
         unit: 'mm',
@@ -468,19 +439,18 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       
       for (let idx = 0; idx < pages.length; idx++) {
         const pageEl = pages[idx] as HTMLElement;
-        setExportStep(`Merender halaman ${idx + 1} dari ${pages.length}...`);
+        setExportStep(`Merender ${monthLabel} - Halaman ${idx + 1} dari ${pages.length}...`);
         
         const canvas = await html2canvas(pageEl, {
-          scale: 2.2, // Extremely sharp resolution for crisp text & charts
+          scale: 2.2, // Extremely sharp resolution
           useCORS: true,
           allowTaint: true,
           backgroundColor: '#ffffff',
           logging: false,
           scrollY: 0,
           scrollX: 0,
-          windowWidth: 1200, // Large virtual window width to prevent responsive/parent squishing
+          windowWidth: 1200,
           onclone: (clonedDoc) => {
-            // Find all matching cloned pages in the clonedDoc and clean them up
             const clonedPages = clonedDoc.querySelectorAll('[data-pdf-page]');
             clonedPages.forEach((clonedP) => {
               const cp = clonedP as HTMLElement;
@@ -495,16 +465,11 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
               cp.style.boxSizing = 'border-box';
             });
 
-            // Fix tailwind oklch and oklab color functions to prevent html2canvas crashes
             const styles = clonedDoc.querySelectorAll('style');
             styles.forEach(style => {
               style.innerHTML = style.innerHTML
-                .replace(/oklch\(([^)]+)\)/gi, (match, content) => {
-                  return parseAndConvertOklch(match, content);
-                })
-                .replace(/oklab\(([^)]+)\)/gi, (match, content) => {
-                  return parseAndConvertOklab(match, content);
-                });
+                .replace(/oklch\(([^)]+)\)/gi, (match, content) => parseAndConvertOklch(match, content))
+                .replace(/oklab\(([^)]+)\)/gi, (match, content) => parseAndConvertOklab(match, content));
             });
 
             const elementsWithInlineStyle = clonedDoc.querySelectorAll('[style]');
@@ -513,14 +478,10 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
               if (inlineStyle) {
                 let updatedStyle = inlineStyle;
                 if (inlineStyle.toLowerCase().includes('oklch')) {
-                  updatedStyle = updatedStyle.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
-                    return parseAndConvertOklch(match, content);
-                  });
+                  updatedStyle = updatedStyle.replace(/oklch\(([^)]+)\)/gi, (match, content) => parseAndConvertOklch(match, content));
                 }
                 if (inlineStyle.toLowerCase().includes('oklab')) {
-                  updatedStyle = updatedStyle.replace(/oklab\(([^)]+)\)/gi, (match, content) => {
-                    return parseAndConvertOklab(match, content);
-                  });
+                  updatedStyle = updatedStyle.replace(/oklab\(([^)]+)\)/gi, (match, content) => parseAndConvertOklab(match, content));
                 }
                 if (updatedStyle !== inlineStyle) {
                   el.setAttribute('style', updatedStyle);
@@ -539,25 +500,51 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
       }
 
-      setExportStep('Menyusun lembaran dan menyimpan PDF...');
+      setExportStep(`Menyusun & mengunduh PDF ${monthLabel}...`);
       pdf.save(fileName);
     } catch (error) {
-      console.error('Failed to generate high-fidelity PDF download:', error);
-      // Fallback to standard print
-      handlePrint();
+      console.error(`Gagal menghasilkan PDF untuk ${monthLabel}:`, error);
     } finally {
-      // Restore parent scroll position
-      if (container) {
-        container.scrollTop = originalScrollTop;
-      }
-      // Restore original styling classes
       if (reportRef.current) {
         reportRef.current.className = originalClassName;
       }
-      setIsExporting(false);
-      setExportStep('');
     }
   };
+
+  // Automate sequential PDF generation for all available months when open is triggered
+  useEffect(() => {
+    if (isOpen && availableMonths.length > 0) {
+      const runAutomatedExport = async () => {
+        setIsExporting(true);
+        // Sort chronologically ascending (oldest first, latest last)
+        const sorted = [...availableMonths].sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+        
+        try {
+          for (let i = 0; i < sorted.length; i++) {
+            const currentMonthObj = sorted[i];
+            setActiveExportIndex(i);
+            setSelectedMonth(currentMonthObj.yearMonth);
+            
+            setExportStep(`Mempersiapkan data laporan ${currentMonthObj.label}...`);
+            // Wait 500ms for React state to propagate and DOM to fully render the report pages offscreen
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Execute the PDF generation for this specific month
+            await executeMonthPDFDownload(currentMonthObj.label);
+          }
+        } catch (error) {
+          console.error('Kesalahan ekspor laporan otomatis:', error);
+        } finally {
+          setIsExporting(false);
+          setActiveExportIndex(-1);
+          setExportStep('');
+          onClose(); // Automatically close the progress loader when done
+        }
+      };
+
+      runAutomatedExport();
+    }
+  }, [isOpen, availableMonths, onClose]);
 
   if (!isOpen) return null;
 
@@ -635,217 +622,57 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         }
       `}</style>
 
-      <div className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl flex flex-col my-4 border border-slate-200 animate-in zoom-in-95 duration-200">
-        
-        {/* Modal Configuration Header */}
-        <div className="bg-white border-b border-slate-200 p-5 rounded-t-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-gradient-to-tr from-indigo-500 to-indigo-600 rounded-2xl text-white shadow-md">
-              <FileText className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest leading-none">Generator Laporan PDF</h2>
-              <p className="text-[10px] text-slate-400 font-bold mt-1">Ekspor ringkasan eksekutif, analisis perbandingan, &amp; data harian</p>
-            </div>
+      {/* Sleek, Minimal, Professional Progress Overlay */}
+      <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200 shadow-2xl space-y-6 text-center relative overflow-hidden animate-in zoom-in-95 duration-250">
+        <div className="absolute -right-12 -top-12 w-32 h-32 rounded-full bg-indigo-50 blur-3xl opacity-70" />
+        <div className="absolute -left-12 -bottom-12 w-32 h-32 rounded-full bg-emerald-50 blur-3xl opacity-70" />
+
+        <div className="relative space-y-5">
+          {/* Animated Spinner with Icon */}
+          <div className="mx-auto w-16 h-16 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center relative shadow-sm">
+            <div className="absolute inset-0 rounded-2xl border-2 border-indigo-100" />
+            <div className="absolute inset-0 rounded-2xl border-2 border-indigo-600 border-t-transparent animate-spin" />
+            <Download className="w-6 h-6 text-indigo-600 relative z-10" />
           </div>
-          
-          {/* Controls: Month Select & Actions */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Pilih Bulan:</span>
-              <select
-                value={selectedMonth}
-                onChange={e => setSelectedMonth(e.target.value)}
-                className="text-xs font-bold px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
-              >
-                {availableMonths.map(m => (
-                  <option key={m.yearMonth} value={m.yearMonth}>
-                    {m.label} ({formatRupiahCompact(m.totalSales)})
-                  </option>
-                ))}
-              </select>
-            </div>
 
-             <button
-              onClick={handleDownloadPDF}
-              disabled={currentMonthData.length === 0 || isExporting}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold uppercase tracking-widest px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-emerald-100 disabled:opacity-45"
-            >
-              {isExporting ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Mengunduh PDF...
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  Unduh Laporan (PDF)
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={handlePrint}
-              disabled={currentMonthData.length === 0 || isExporting}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-extrabold uppercase tracking-widest px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45"
-            >
-              <Printer className="w-4 h-4" />
-              Cetak via Browser
-            </button>
-
-            <button
-              onClick={onClose}
-              className="p-2 bg-slate-50 hover:bg-slate-200 rounded-xl border border-slate-200 text-slate-500 transition-all"
-            >
-              <X className="w-4 h-4" />
-            </button>
+          <div className="space-y-2">
+            <h3 className="text-base font-black text-slate-800 leading-snug">Menyiapkan Unduhan Laporan PDF</h3>
+            <p className="text-xs text-slate-500 font-semibold leading-relaxed px-4">
+              Semua laporan bulanan Anda sedang dikonversi secara otomatis ke ukuran <strong className="text-slate-800 font-bold">A4 Potret</strong> resolusi tinggi.
+            </p>
           </div>
-        </div>
 
-        {/* Modal Main Body (Two Columns: Setup & Live Preview) */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 no-print overflow-hidden min-h-[500px]">
-          
-          {/* Sidebar Configurator (Left Panel) */}
-          <div className="p-5 bg-white border-r border-slate-200 space-y-5 lg:col-span-1 overflow-y-auto max-h-[75vh]">
-            <div className="space-y-4">
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Kustomisasi Laporan</h3>
-              
-              {/* Title input */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">Judul Dokumen</label>
-                <input
-                  type="text"
-                  value={reportTitle}
-                  onChange={e => setReportTitle(e.target.value)}
-                  placeholder="Ketik judul laporan..."
-                  className="w-full text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          {/* Progress Status Card */}
+          <div className="bg-slate-50/80 border border-slate-200/50 p-4 rounded-2xl space-y-3.5 text-left">
+            <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              <span>Status Unduhan</span>
+              <span className="text-indigo-600 font-bold">
+                {activeExportIndex >= 0 ? `${activeExportIndex + 1} / ${availableMonths.length} Laporan` : 'Memulai...'}
+              </span>
+            </div>
+            
+            <div className="space-y-1.5">
+              <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-indigo-600 rounded-full transition-all duration-300"
+                  style={{ width: `${availableMonths.length > 0 ? ((activeExportIndex + 1) / availableMonths.length) * 100 : 0}%` }}
                 />
               </div>
+              <p className="text-xs font-bold text-slate-700 animate-pulse truncate">
+                {exportStep || 'Menyiapkan pengeksporan otomatis...'}
+              </p>
             </div>
 
-            <div className="pt-4 border-t border-slate-100 space-y-3.5">
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Petunjuk Ekspor PDF</h4>
-              <ul className="text-[10.5px] text-slate-500 font-semibold space-y-2 list-disc list-inside leading-relaxed">
-                <li>Klik tombol <strong className="text-emerald-600">Unduh Laporan (PDF)</strong> untuk mengunduh dokumen laporan utuh dalam satu file PDF berkualitas tinggi.</li>
-                <li>Tata letak dan daftar rincian penjualan harian pada PDF ini dirancang agar presisi, tajam, dan sama persis dengan tabel visual yang Anda lihat di layar.</li>
-                <li>Jika Anda ingin mencetak langsung menggunakan printer fisik atau menyimpan dengan dialog bawaan sistem, klik <strong className="text-indigo-600">Cetak via Browser</strong>.</li>
-              </ul>
-            </div>
-
-            <div className="pt-4 border-t border-slate-100 space-y-3">
-              <div className={`border rounded-xl p-3 space-y-1.5 transition-all duration-300 ${
-                isInIframe 
-                  ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-sm' 
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-900'
-              }`}>
-                <span className="text-[10px] font-black uppercase tracking-wider block">
-                  {isInIframe ? '⚠️ Buka di Tab Baru Untuk Mencetak' : '✅ Mode Cetak Aktif'}
-                </span>
-                {isInIframe ? (
-                  <>
-                    <p className="text-[10px] leading-relaxed font-semibold text-amber-900">
-                      Sistem keamanan preview (iframe) AI Studio memblokir tombol cetak bawaan browser.
-                    </p>
-                    <p className="text-[10px] leading-relaxed font-bold text-indigo-900">
-                      Silakan klik tombol <strong className="text-indigo-600">Buka di Tab Baru ↗️</strong> (ikon panah keluar di pojok kanan atas preview), lalu coba kembali. Fitur Cetak akan langsung berfungsi 100% lancar!
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-[10px] leading-relaxed font-semibold text-emerald-800">
-                    Aplikasi berjalan mandiri di tab baru. Tombol <strong>Cetak / Unduh Gambar</strong> di atas dapat digunakan dengan lancar!
-                  </p>
-                )}
-              </div>
+            <div className="border-t border-slate-200/50 pt-2.5 flex items-center gap-2 text-[9.5px] text-slate-400 font-semibold leading-none">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              <span>Memproses dengan konversi vektor tajam 300 DPI</span>
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Direct Download UI Panel (Right Panel, 3/4) */}
-          <div className="lg:col-span-3 p-8 overflow-y-auto max-h-[75vh] bg-slate-50 flex flex-col items-center justify-center border-l border-slate-100 no-print">
-            <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200 shadow-xl shadow-slate-100/50 space-y-6 text-center relative overflow-hidden animate-in zoom-in-95 duration-250">
-              {/* Decorative background gradients */}
-              <div className="absolute -right-12 -top-12 w-32 h-32 rounded-full bg-indigo-50 blur-3xl opacity-70" />
-              <div className="absolute -left-12 -bottom-12 w-32 h-32 rounded-full bg-emerald-50 blur-3xl opacity-70" />
-
-              <div className="relative space-y-5">
-                {/* Visual Document Mockup Card */}
-                <div className="mx-auto w-32 h-44 bg-slate-50 border border-slate-200 rounded-2xl shadow-md relative p-4 flex flex-col justify-between overflow-hidden">
-                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600" />
-                  <div className="flex justify-between items-start pt-1">
-                    <FileText className="w-8 h-8 text-indigo-600" />
-                    <span className="text-[7.5px] font-black text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded uppercase tracking-wider">A4 PDF</span>
-                  </div>
-                  
-                  <div className="space-y-1.5 text-left">
-                    <div className="h-1.5 w-16 bg-slate-300 rounded" />
-                    <div className="h-1 w-20 bg-slate-200 rounded" />
-                    <div className="h-1 w-12 bg-slate-200 rounded" />
-                  </div>
-
-                  <div className="flex justify-between items-center border-t border-slate-100 pt-2">
-                    <span className="text-[8px] font-black font-mono text-slate-400 uppercase tracking-widest">HLM 1-{2 + chunkedMonthData.length}</span>
-                    <div className="w-4.5 h-4.5 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center">
-                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h3 className="text-base font-black text-slate-800 leading-snug">Laporan Bulanan Siap Diunduh</h3>
-                  <p className="text-xs text-slate-500 font-semibold leading-relaxed px-2">
-                    Dokumen laporan keuangan terformat otomatis dalam ukuran <strong className="text-slate-800 font-bold">A4 Potret</strong> secara presisi, tajam, dan siap cetak.
-                  </p>
-                </div>
-
-                {/* Metadata Badge Grid */}
-                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200/50 text-left">
-                  <div className="space-y-0.5 pl-1">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block tracking-wider">Periode Laporan</span>
-                    <span className="text-xs font-black text-slate-700 block truncate">{formatMonthLabel(selectedMonth)}</span>
-                  </div>
-                  <div className="space-y-0.5 pl-1 border-l border-slate-200">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block tracking-wider">Total Halaman</span>
-                    <span className="text-xs font-black text-slate-700 block">{2 + chunkedMonthData.length} Halaman (A4)</span>
-                  </div>
-                </div>
-
-                {/* Main Download Button and Loading Feedback */}
-                <div className="pt-2">
-                  {isExporting ? (
-                    <div className="space-y-3.5 animate-in fade-in-50 duration-200">
-                      <div className="bg-indigo-50/50 border border-indigo-100 p-4 rounded-2xl flex flex-col items-center justify-center gap-3">
-                        <div className="relative w-10 h-10 flex items-center justify-center">
-                          <div className="absolute inset-0 rounded-full border-4 border-slate-200" />
-                          <div className="absolute inset-0 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin" />
-                        </div>
-                        <div className="text-center space-y-1">
-                          <p className="text-xs font-extrabold text-indigo-600 animate-pulse">{exportStep || 'Sedang memproses halaman...'}</p>
-                          <p className="text-[10px] text-slate-400 font-bold">Harap tunggu, render resolusi tinggi untuk hasil cetak tajam</p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={handleDownloadPDF}
-                      disabled={currentMonthData.length === 0}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-[10.5px] font-extrabold uppercase tracking-widest py-3.5 px-6 rounded-2xl flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-emerald-100 disabled:opacity-50"
-                    >
-                      <Download className="w-4.5 h-4.5" />
-                      <span>Unduh Laporan PDF (A4)</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* Additional quality statement */}
-                <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-400 font-bold pt-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                  <span>Dihasilkan dengan konversi vektor tajam 300 DPI</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Hidden Offscreen Container for rendering high-fidelity A4 pages in DOM */}
-          <div className="fixed -left-[9999px] -top-[9999px] w-[210mm] bg-white no-print" style={{ zIndex: -1000 }}>
+      {/* Hidden Offscreen Container for rendering high-fidelity A4 pages in DOM */}
+      <div className="fixed -left-[9999px] -top-[9999px] w-[210mm] bg-white no-print" style={{ zIndex: -1000 }}>
             <div ref={reportRef} className="flex flex-col gap-8 w-[210mm] min-w-[210mm] select-text">
               
               {/* Actual Document to Print */}
@@ -1290,8 +1117,5 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           </div>
 
         </div>
-
-      </div>
-    </div>
   );
 }

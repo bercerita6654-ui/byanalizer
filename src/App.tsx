@@ -9,10 +9,11 @@ import SalesDayOfWeek from './components/SalesDayOfWeek';
 import SalesTable from './components/SalesTable';
 import SalesPredictions from './components/SalesPredictions';
 import EventModal from './components/EventModal';
+import SalesReportModal from './components/SalesReportModal';
 import { 
   TrendingUp, Calendar, Table, Target, BarChart2, 
   RefreshCw, Link as LinkIcon, HelpCircle, CheckCircle2, 
-  Sparkles, FileSpreadsheet, PlusCircle, AlertCircle
+  Sparkles, FileSpreadsheet, PlusCircle, AlertCircle, FileText
 } from 'lucide-react';
 
 const DEFAULT_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=21254849&single=true&output=csv';
@@ -40,6 +41,7 @@ export default function App() {
 
   // Modal selector date details
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
+  const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   
   // Global date range filters
@@ -517,6 +519,28 @@ export default function App() {
             {/* TAB: Dashboard Summary */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6">
+                
+                {/* Print Report PDF CTA Bar */}
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 no-print">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl border border-amber-100">
+                      <FileSpreadsheet className="w-5 h-5 text-amber-500 animate-pulse" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest leading-none">Evaluasi Kinerja Penjualan Bulanan</h4>
+                      <p className="text-[11px] text-slate-400 font-bold mt-1">Cetak / Simpan Laporan Kinerja Bulanan Profesional, Perbandingan 2 Bulan Sebelumnya &amp; Rincian Harian.</p>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={() => setIsReportModalOpen(true)}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold uppercase tracking-widest px-5 py-3 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-100 shrink-0 hover:scale-[1.01]"
+                  >
+                    <FileText className="w-4 h-4 text-white" />
+                    Unduh Laporan PDF
+                  </button>
+                </div>
+
                 <SalesSummary salesData={filteredSalesData} />
                 
                 <SalesComparison salesData={salesData} />
@@ -582,6 +606,14 @@ export default function App() {
           onDeleteEvent={handleDeleteEvent}
         />
       )}
+
+      {/* Monthly Sales PDF Report Modal */}
+      <SalesReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        salesData={salesData}
+        events={events}
+      />
 
       {/* Footer copyright */}
       <footer className="bg-white border-t border-slate-200/80 px-6 py-6 text-center text-xs text-slate-400 font-semibold mt-auto">

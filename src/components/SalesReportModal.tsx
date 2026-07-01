@@ -361,7 +361,17 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     if (!reportRef.current) return;
     setIsExporting(true);
     
+    // Store original classes to avoid layout breakages
+    const originalClassName = reportRef.current.className;
+    
     try {
+      // Temporarily remove any transforms/scaling from the report container
+      // This is crucial because CSS transform scale causes html2canvas coordinate failures (rendering blank or cut off)
+      reportRef.current.className = "flex flex-col gap-8 w-[210mm] min-w-[210mm] select-text bg-white";
+      
+      // Wait a tiny bit for layout reflow
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       const formattedMonth = formatMonthLabel(selectedMonth);
       const fileName = `Laporan Penjualan (${formattedMonth}).pdf`;
       const pdf = new jsPDF('p', 'mm', 'a4');
@@ -430,6 +440,10 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       // Fallback to standard print
       handlePrint();
     } finally {
+      // Restore original styling classes
+      if (reportRef.current) {
+        reportRef.current.className = originalClassName;
+      }
       setIsExporting(false);
     }
   };

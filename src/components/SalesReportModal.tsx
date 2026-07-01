@@ -357,7 +357,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     }, 1000);
   };
 
-  const handleDownloadPDF = async () => {
+  const handleDownloadJPG = async () => {
     if (!reportRef.current) return;
     setIsExporting(true);
     
@@ -370,12 +370,9 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       reportRef.current.className = "flex flex-col gap-8 w-[210mm] min-w-[210mm] select-text bg-white";
       
       // Wait a tiny bit for layout reflow
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 150));
 
       const formattedMonth = formatMonthLabel(selectedMonth);
-      const fileName = `Laporan Penjualan (${formattedMonth}).pdf`;
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      
       const pages = reportRef.current.querySelectorAll('[data-pdf-page]');
       
       for (let idx = 0; idx < pages.length; idx++) {
@@ -426,17 +423,18 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         });
         
         const imgData = canvas.toDataURL('image/jpeg', 0.98);
+        const link = document.createElement('a');
+        link.download = `Laporan Penjualan (${formattedMonth}) - Halaman ${idx + 1}.jpg`;
+        link.href = imgData;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
         
-        if (idx > 0) {
-          pdf.addPage();
-        }
-        
-        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+        // Wait briefly between downloads to avoid browser block or concurrency issues
+        await new Promise(resolve => setTimeout(resolve, 400));
       }
-      
-      pdf.save(fileName);
     } catch (error) {
-      console.error('Failed to generate high-fidelity PDF download:', error);
+      console.error('Failed to generate high-fidelity JPG download:', error);
       // Fallback to standard print
       handlePrint();
     } finally {
@@ -556,7 +554,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             </div>
 
             <button
-              onClick={handleDownloadPDF}
+              onClick={handleDownloadJPG}
               disabled={currentMonthData.length === 0 || isExporting}
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold uppercase tracking-widest px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-emerald-100 disabled:opacity-45"
             >
@@ -568,7 +566,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
               ) : (
                 <>
                   <Download className="w-4 h-4" />
-                  Unduh PDF
+                  Unduh Gambar (JPG)
                 </>
               )}
             </button>
@@ -613,11 +611,11 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             </div>
 
             <div className="pt-4 border-t border-slate-100 space-y-3.5">
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Petunjuk Ekspor PDF</h4>
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Petunjuk Ekspor JPG</h4>
               <ul className="text-[10.5px] text-slate-500 font-semibold space-y-2 list-disc list-inside leading-relaxed">
-                <li>Klik tombol <strong className="text-emerald-600">Unduh PDF</strong> untuk mengunduh berkas PDF secara instan ke perangkat Anda dengan nama file otomatis yang rapi.</li>
+                <li>Klik tombol <strong className="text-emerald-600">Unduh Gambar (JPG)</strong> untuk mengunduh laporan penjualan berupa gambar JPG berkualitas tinggi per halaman secara otomatis.</li>
+                <li>Jika browser Anda memunculkan dialog konfirmasi pengunduhan ganda, harap pilih <strong className="text-emerald-600">"Izinkan" (Allow)</strong> agar semua halaman terunduh secara lengkap.</li>
                 <li>Jika Anda ingin mencetak langsung menggunakan printer fisik, klik <strong className="text-indigo-600">Cetak via Browser</strong>.</li>
-                <li>Pada opsi pencetakan sistem, pilih setelan kertas <strong className="text-slate-800">A4</strong>, orientasi <strong className="text-slate-800">Portrait</strong>, dan aktifkan <strong className="text-slate-800">"Background Graphics"</strong>.</li>
               </ul>
             </div>
 
@@ -641,7 +639,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                   </>
                 ) : (
                   <p className="text-[10px] leading-relaxed font-semibold text-emerald-800">
-                    Aplikasi berjalan mandiri di tab baru. Tombol <strong>Cetak / Simpan PDF</strong> di atas dapat digunakan dengan lancar!
+                    Aplikasi berjalan mandiri di tab baru. Tombol <strong>Cetak / Unduh Gambar</strong> di atas dapat digunakan dengan lancar!
                   </p>
                 )}
               </div>

@@ -366,75 +366,13 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       const fileName = `Laporan Penjualan (${formattedMonth}).pdf`;
       const pdf = new jsPDF('p', 'mm', 'a4');
       
-      const sections = ['1', '2', '3'];
+      const pages = reportRef.current.querySelectorAll('[data-pdf-page]');
       
-      for (let idx = 0; idx < sections.length; idx++) {
-        const sectionNum = sections[idx];
-        const targetSection = reportRef.current.querySelector(`[data-pdf-section="${sectionNum}"]`);
-        if (!targetSection) continue;
+      for (let idx = 0; idx < pages.length; idx++) {
+        const pageEl = pages[idx] as HTMLElement;
         
-        // Create off-screen container styled as a perfect A4 sheet
-        const tempContainer = document.createElement('div');
-        tempContainer.style.position = 'fixed';
-        tempContainer.style.left = '-9999px';
-        tempContainer.style.top = '0';
-        tempContainer.style.width = '210mm';
-        tempContainer.style.height = '297mm';
-        tempContainer.style.boxSizing = 'border-box';
-        tempContainer.style.padding = '12mm 15mm 12mm 15mm'; // Elegant PDF margins
-        tempContainer.style.backgroundColor = '#ffffff';
-        tempContainer.style.color = '#0f172a';
-        tempContainer.style.display = 'flex';
-        tempContainer.style.flexDirection = 'column';
-        tempContainer.style.justifyContent = 'space-between';
-        tempContainer.className = 'font-sans text-slate-900';
-        
-        // Clone the target section node so we don't mess with the live DOM
-        const clonedNode = targetSection.cloneNode(true) as HTMLElement;
-        
-        // Clean up print classes that are only relevant for browser standard printing
-        clonedNode.classList.remove('print-page-break-before', 'pt-10', 'pt-6');
-        clonedNode.style.marginTop = '0';
-        clonedNode.style.paddingTop = '0';
-        clonedNode.style.width = '100%';
-        
-        // Put the cloned node inside our A4 temp container
-        const contentWrapper = document.createElement('div');
-        contentWrapper.style.width = '100%';
-        contentWrapper.appendChild(clonedNode);
-        tempContainer.appendChild(contentWrapper);
-        
-        // Add a beautiful matching footer with Page Number
-        const footerEl = document.createElement('div');
-        footerEl.style.width = '100%';
-        footerEl.style.display = 'flex';
-        footerEl.style.justifyContent = 'space-between';
-        footerEl.style.alignItems = 'center';
-        footerEl.style.borderTop = '1px solid #e2e8f0';
-        footerEl.style.paddingTop = '6px';
-        footerEl.style.marginTop = 'auto';
-        footerEl.style.fontSize = '8px';
-        footerEl.style.fontWeight = '700';
-        footerEl.style.color = '#94a3b8'; // text-slate-400
-        footerEl.style.fontFamily = 'monospace';
-        
-        const docTitleText = document.createElement('span');
-        docTitleText.innerText = `${reportTitle} - Periode ${formattedMonth}`;
-        
-        const pageNumText = document.createElement('span');
-        pageNumText.innerText = `Halaman ${idx + 1} dari ${sections.length}`;
-        
-        footerEl.appendChild(docTitleText);
-        footerEl.appendChild(pageNumText);
-        tempContainer.appendChild(footerEl);
-        
-        document.body.appendChild(tempContainer);
-        
-        // Wait briefly for reflow
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
-        const canvas = await html2canvas(tempContainer, {
-          scale: 2, // High resolution for beautiful, sharp text and layout
+        const canvas = await html2canvas(pageEl, {
+          scale: 2.2, // Extremely sharp resolution for crisp text & charts
           useCORS: true,
           allowTaint: true,
           backgroundColor: '#ffffff',
@@ -443,7 +381,21 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           scrollX: 0,
           windowWidth: 794, // Standard A4 pixel width at 96 DPI
           onclone: (clonedDoc) => {
-            // Fix any tailwind variables that use oklch to prevent crashing
+            // Reset styles on the cloned page element inside html2canvas to ensure absolute A4 scale
+            const clonedPage = clonedDoc.querySelector(`[data-pdf-page="${idx + 1}"]`) as HTMLElement;
+            if (clonedPage) {
+              clonedPage.style.transform = 'none';
+              clonedPage.style.scale = 'none';
+              clonedPage.style.margin = '0';
+              clonedPage.style.boxShadow = 'none';
+              clonedPage.style.border = 'none';
+              clonedPage.style.borderRadius = '0';
+              clonedPage.style.width = '210mm';
+              clonedPage.style.height = '297mm';
+              clonedPage.style.boxSizing = 'border-box';
+            }
+
+            // Fix tailwind oklch color functions to prevent html2canvas crashes
             const styles = clonedDoc.querySelectorAll('style');
             styles.forEach(style => {
               style.innerHTML = style.innerHTML.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
@@ -463,22 +415,19 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           }
         });
         
-        document.body.removeChild(tempContainer);
-        
         const imgData = canvas.toDataURL('image/jpeg', 0.98);
         
         if (idx > 0) {
           pdf.addPage();
         }
         
-        // Render precisely onto A4 canvas in PDF
         pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
       }
       
       pdf.save(fileName);
     } catch (error) {
       console.error('Failed to generate high-fidelity PDF download:', error);
-      // Fallback to standard print/save
+      // Fallback to standard print
       handlePrint();
     } finally {
       setIsExporting(false);
@@ -496,7 +445,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           /* Setup perfect A4 scale print rules */
           @page {
             size: A4 portrait;
-            margin: 15mm 12mm 15mm 12mm;
+            margin: 0 !important;
           }
           
           /* Hide normal screen elements completely */
@@ -513,7 +462,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 100% !important;
+            width: 210mm !important;
             background: white !important;
             color: black !important;
             padding: 0 !important;
@@ -522,14 +471,17 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             border: none !important;
           }
           
-          /* Page break controls */
-          .print-page-break-before {
-            page-break-before: always !important;
-            break-before: always !important;
-          }
-          .print-page-break-inside-avoid {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
+          [data-pdf-page] {
+            width: 210mm !important;
+            height: 297mm !important;
+            page-break-after: always !important;
+            break-after: always !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            padding: 15mm !important;
+            box-sizing: border-box !important;
           }
           
           /* Typography print refinements */
@@ -552,8 +504,8 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           
           /* Table formatting for print */
           th, td {
-            padding: 5px 8px !important;
-            font-size: 8pt !important;
+            padding: 4px 6px !important;
+            font-size: 7.5pt !important;
           }
         }
       `}</style>
@@ -684,13 +636,14 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
 
           {/* Live Preview Area (Right Panel, 3/4) */}
           <div className="lg:col-span-3 p-6 overflow-y-auto max-h-[75vh] flex justify-center bg-white shadow-inner border-l border-slate-100">
-            <div ref={reportRef} data-report-paper="true" className="bg-white w-[210mm] min-h-[297mm] p-10 shadow-2xl border border-slate-300 rounded-lg flex flex-col justify-between origin-top scale-[0.85] sm:scale-100 max-w-full">
+            <div ref={reportRef} className="flex flex-col gap-8 w-full max-w-[210mm] origin-top scale-[0.85] sm:scale-100 select-text">
               
               {/* Actual Document to Print */}
-              <div className="print-section text-slate-900 font-sans text-xs w-full">
+              <div className="print-section text-slate-900 font-sans text-xs w-full flex flex-col gap-8">
                 
                 {/* PAGE 1: HEADER & EXECUTIVE SUMMARY */}
-                <div data-pdf-section="1" className="space-y-6">
+                <div data-pdf-page="1" className="bg-white w-[210mm] h-[297mm] p-10 shadow-2xl border border-slate-300 rounded-lg flex flex-col justify-between relative box-border overflow-hidden">
+                  <div className="space-y-5">
                   
                   {/* Corporate Header Section */}
                   <div className="border-b-2 border-slate-900 pb-4 flex justify-between items-end">
@@ -897,14 +850,26 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                       </div>
                     )}
                   </div>
-
+                </div> {/* Closes space-y-5 */}
+                
+                {/* Page 1 Footer */}
+                <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400 mt-auto">
+                  <span>{reportTitle} - Periode {formatMonthLabel(selectedMonth)}</span>
+                  <span>Halaman 1 dari 3</span>
                 </div>
+              </div> {/* Closes data-pdf-page="1" */}
 
-                {/* PAGE 2: WEEKLY BREAKDOWN, CHANNELS AND TRANSACTIONS */}
-                <div data-pdf-section="2" className="print-page-break-before space-y-6 pt-10">
-                  
-                  {/* Section 4: Analisis Penjualan Mingguan (Weekly Breakdown) */}
-                  <div className="space-y-3.5">
+              {/* PAGE 2: WEEKLY BREAKDOWN & CHANNELS */}
+                <div data-pdf-page="2" className="bg-white w-[210mm] h-[297mm] p-10 shadow-2xl border border-slate-300 rounded-lg flex flex-col justify-between relative box-border overflow-hidden">
+                  <div className="space-y-5">
+                    {/* Running Page Header */}
+                    <div className="border-b border-slate-200 pb-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400">
+                      <span className="font-bold">{reportTitle}</span>
+                      <span>Periode: {formatMonthLabel(selectedMonth)}</span>
+                    </div>
+                    
+                    {/* Section 4: Analisis Penjualan Mingguan (Weekly Breakdown) */}
+                    <div className="space-y-3.5">
                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-1.5 flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-indigo-600" /> IV. ANALISIS KINERJA MINGGUAN (WEEKLY PERFORMANCE)
                     </h3>
@@ -980,9 +945,41 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                     )}
                   </div>
 
-                  {/* Section 6: Rincian Transaksi Harian (Daily Transactions Detail) */}
-                  <div data-pdf-section="3" className="space-y-4 print-page-break-before pt-6">
-                    <div className="flex justify-between items-end border-b border-slate-200 pb-2">
+                  {/* VII. ANALISIS & REKOMENDASI STRATEGIS (Catatan Analis) */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1.5 print-bg-slate-50">
+                    <h4 className="text-[9px] font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                      💡 VII. ANALISIS &amp; REKOMENDASI STRATEGIS
+                    </h4>
+                    <p className="text-[9px] leading-relaxed text-slate-600 font-medium">
+                      1. Kinerja omzet bulan ini didorong secara signifikan oleh penjualan melalui saluran <strong className="text-slate-800">
+                        {currentMonthSummary && currentMonthSummary.channelSplit.instan.pct > 40 ? 'Instan' : 'Reguler'}
+                      </strong>. Disarankan untuk terus memberikan promo voucher khusus untuk meningkatkan volume transaksi.
+                      <br />
+                      2. Rekomendasi operasional: Alokasikan sumber daya logistik ekstra pada hari-hari sibuk (terutama hari kerja aktif) untuk meminimalkan waktu pemrosesan dan menjaga loyalitas pelanggan setia.
+                    </p>
+                  </div>
+                  
+                </div> {/* Closes space-y-5 */}
+                
+                {/* Page 2 Footer */}
+                <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400 mt-auto">
+                  <span>{reportTitle} - Periode {formatMonthLabel(selectedMonth)}</span>
+                  <span>Halaman 2 dari 3</span>
+                </div>
+              </div> {/* Closes data-pdf-page="2" */}
+
+              {/* PAGE 3: DAILY DETAILED TRANSACTIONS LIST */}
+                <div data-pdf-page="3" className="bg-white w-[210mm] h-[297mm] p-10 shadow-2xl border border-slate-300 rounded-lg flex flex-col justify-between relative box-border overflow-hidden">
+                  <div className="space-y-4">
+                    {/* Running Page Header */}
+                    <div className="border-b border-slate-200 pb-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400">
+                      <span className="font-bold">{reportTitle}</span>
+                      <span>Periode: {formatMonthLabel(selectedMonth)}</span>
+                    </div>
+                    
+                    {/* Section 6: Rincian Transaksi Harian (Daily Transactions Detail) */}
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-end border-b border-slate-200 pb-2">
                       <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
                         <FileText className="w-4.5 h-4.5 text-indigo-600" /> VI. DAFTAR RINCIAN PENJUALAN HARIAN
                       </h3>
@@ -1058,15 +1055,19 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                       </table>
                     </div>
                   </div>
-
-                  {/* Signatures & Approvals Area (Hidden) */}
-
+                </div> {/* Closes space-y-4 */}
+                
+                {/* Page 3 Footer */}
+                <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400 mt-auto">
+                  <span>{reportTitle} - Periode {formatMonthLabel(selectedMonth)}</span>
+                  <span>Halaman 3 dari 3</span>
                 </div>
+              </div> {/* Closes data-pdf-page="3" */}
 
-              </div>
-              
-            </div>
-          </div>
+            </div> {/* Closes print-section */}
+            
+          </div> {/* Closes reportRef */}
+        </div> {/* Closes lg:col-span-3 */}
 
         </div>
 

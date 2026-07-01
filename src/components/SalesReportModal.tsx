@@ -115,6 +115,70 @@ function parseAndConvertOklch(match: string, content: string): string {
   }
 }
 
+function parseAndConvertOklab(match: string, content: string): string {
+  try {
+    const normalized = content.replace(/,/g, ' ').replace(/\//g, ' ').trim();
+    const parts = normalized.split(/\s+/);
+    if (parts.length < 3) return match;
+    
+    let lStr = parts[0];
+    let l = parseFloat(lStr);
+    if (lStr.endsWith('%')) {
+      l = l / 100;
+    }
+    
+    let aStr = parts[1];
+    let a = parseFloat(aStr);
+    if (aStr.endsWith('%')) {
+      a = (a / 100) * 0.4;
+    }
+    
+    let bStr = parts[2];
+    let b_val = parseFloat(bStr);
+    if (bStr.endsWith('%')) {
+      b_val = (b_val / 100) * 0.4;
+    }
+    
+    if (isNaN(l) || isNaN(a) || isNaN(b_val)) return match;
+    
+    const l_ = l + 0.3963377774 * a + 0.2158037573 * b_val;
+    const m_ = l - 0.1055613458 * a - 0.0638541728 * b_val;
+    const s_ = l - 0.0894841775 * a - 1.2914855480 * b_val;
+    
+    const l1 = l_ * l_ * l_;
+    const m1 = m_ * m_ * m_;
+    const s1 = s_ * s_ * s_;
+    
+    const r = +4.0767416621 * l1 - 3.3077115913 * m1 + 0.2309699292 * s1;
+    const g = -1.2684380046 * l1 + 2.6097574011 * m1 - 0.3413193965 * s1;
+    const b_rgb = -0.0041960863 * l1 - 0.7034186147 * m1 + 1.7076147010 * s1;
+    
+    const fn = (val: number) => {
+      const cVal = Math.max(0, val);
+      return cVal <= 0.0031308 ? 12.92 * cVal : 1.055 * Math.pow(cVal, 1 / 2.4) - 0.055;
+    };
+    
+    const R = Math.round(Math.max(0, Math.min(1, fn(r))) * 255);
+    const G = Math.round(Math.max(0, Math.min(1, fn(g))) * 255);
+    const B = Math.round(Math.max(0, Math.min(1, fn(b_rgb))) * 255);
+    
+    let alphaStr = parts[3];
+    if (alphaStr) {
+      let alpha = parseFloat(alphaStr);
+      if (alphaStr.endsWith('%')) {
+        alpha = alpha / 100;
+      }
+      if (!isNaN(alpha)) {
+        return `rgba(${R}, ${G}, ${B}, ${alpha})`;
+      }
+    }
+    
+    return `rgb(${R}, ${G}, ${B})`;
+  } catch (e) {
+    return match;
+  }
+}
+
 export default function SalesReportModal({ isOpen, onClose, salesData, events }: SalesReportModalProps) {
   // Extract all available months from the dataset
   const availableMonths = useMemo(() => {
@@ -428,21 +492,36 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
               cp.style.boxSizing = 'border-box';
             });
 
-            // Fix tailwind oklch color functions to prevent html2canvas crashes
+            // Fix tailwind oklch and oklab color functions to prevent html2canvas crashes
             const styles = clonedDoc.querySelectorAll('style');
             styles.forEach(style => {
-              style.innerHTML = style.innerHTML.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
-                return parseAndConvertOklch(match, content);
-              });
+              style.innerHTML = style.innerHTML
+                .replace(/oklch\(([^)]+)\)/gi, (match, content) => {
+                  return parseAndConvertOklch(match, content);
+                })
+                .replace(/oklab\(([^)]+)\)/gi, (match, content) => {
+                  return parseAndConvertOklab(match, content);
+                });
             });
 
             const elementsWithInlineStyle = clonedDoc.querySelectorAll('[style]');
             elementsWithInlineStyle.forEach(el => {
               const inlineStyle = el.getAttribute('style');
-              if (inlineStyle && inlineStyle.toLowerCase().includes('oklch')) {
-                el.setAttribute('style', inlineStyle.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
-                  return parseAndConvertOklch(match, content);
-                }));
+              if (inlineStyle) {
+                let updatedStyle = inlineStyle;
+                if (inlineStyle.toLowerCase().includes('oklch')) {
+                  updatedStyle = updatedStyle.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
+                    return parseAndConvertOklch(match, content);
+                  });
+                }
+                if (inlineStyle.toLowerCase().includes('oklab')) {
+                  updatedStyle = updatedStyle.replace(/oklab\(([^)]+)\)/gi, (match, content) => {
+                    return parseAndConvertOklab(match, content);
+                  });
+                }
+                if (updatedStyle !== inlineStyle) {
+                  el.setAttribute('style', updatedStyle);
+                }
               }
             });
           }

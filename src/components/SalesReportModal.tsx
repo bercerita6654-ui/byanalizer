@@ -302,14 +302,19 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         allowTaint: true,
         backgroundColor: '#ffffff',
         logging: false,
+        scrollY: 0,
+        scrollX: 0,
         windowWidth: 794, // Standard A4 pixel width representation for crisp styling
         onclone: (clonedDoc) => {
           const clonedEl = clonedDoc.querySelector('[data-report-paper]') as HTMLElement;
           if (clonedEl) {
+            clonedEl.classList.remove('scale-[0.85]', 'sm:scale-100', 'origin-top', 'max-w-full', 'shadow-2xl', 'border');
             clonedEl.style.transform = 'none';
             clonedEl.style.margin = '0';
             clonedEl.style.boxShadow = 'none';
             clonedEl.style.border = 'none';
+            clonedEl.style.width = '210mm';
+            clonedEl.style.minHeight = '297mm';
           }
         }
       });

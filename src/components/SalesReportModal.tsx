@@ -367,14 +367,21 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     }, 1000);
   };
 
-  const handleDownloadJPG = async () => {
+  const handleDownloadPDF = async () => {
     if (!reportRef.current) return;
     setIsExporting(true);
     
     // Store original classes to avoid layout breakages
     const originalClassName = reportRef.current.className;
+    const container = reportRef.current.parentElement;
+    const originalScrollTop = container ? container.scrollTop : 0;
     
     try {
+      // Temporarily scroll parent preview container to top to eliminate html2canvas coordinates shift
+      if (container) {
+        container.scrollTop = 0;
+      }
+
       // Temporarily remove any transforms/scaling from the report container
       // This is crucial because CSS transform scale causes html2canvas coordinate failures (rendering blank or cut off)
       reportRef.current.className = "flex flex-col gap-8 w-[210mm] min-w-[210mm] select-text bg-white";
@@ -383,6 +390,14 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       await new Promise(resolve => setTimeout(resolve, 150));
 
       const formattedMonth = formatMonthLabel(selectedMonth);
+      const fileName = `Laporan Penjualan (${formattedMonth}).pdf`;
+      const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+      
       const pages = reportRef.current.querySelectorAll('[data-pdf-page]');
       
       for (let idx = 0; idx < pages.length; idx++) {
@@ -396,21 +411,22 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           logging: false,
           scrollY: 0,
           scrollX: 0,
-          windowWidth: 794, // Standard A4 pixel width at 96 DPI
+          windowWidth: 1200, // Large virtual window width to prevent responsive/parent squishing
           onclone: (clonedDoc) => {
-            // Reset styles on the cloned page element inside html2canvas to ensure absolute A4 scale
-            const clonedPage = clonedDoc.querySelector(`[data-pdf-page="${idx + 1}"]`) as HTMLElement;
-            if (clonedPage) {
-              clonedPage.style.transform = 'none';
-              clonedPage.style.scale = 'none';
-              clonedPage.style.margin = '0';
-              clonedPage.style.boxShadow = 'none';
-              clonedPage.style.border = 'none';
-              clonedPage.style.borderRadius = '0';
-              clonedPage.style.width = '210mm';
-              clonedPage.style.height = '297mm';
-              clonedPage.style.boxSizing = 'border-box';
-            }
+            // Find all matching cloned pages in the clonedDoc and clean them up
+            const clonedPages = clonedDoc.querySelectorAll('[data-pdf-page]');
+            clonedPages.forEach((clonedP) => {
+              const cp = clonedP as HTMLElement;
+              cp.style.transform = 'none';
+              cp.style.scale = 'none';
+              cp.style.margin = '0';
+              cp.style.boxShadow = 'none';
+              cp.style.border = 'none';
+              cp.style.borderRadius = '0';
+              cp.style.width = '210mm';
+              cp.style.height = '297mm';
+              cp.style.boxSizing = 'border-box';
+            });
 
             // Fix tailwind oklch color functions to prevent html2canvas crashes
             const styles = clonedDoc.querySelectorAll('style');
@@ -432,22 +448,25 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           }
         });
         
-        const imgData = canvas.toDataURL('image/jpeg', 0.98);
-        const link = document.createElement('a');
-        link.download = `Laporan Penjualan (${formattedMonth}) - Halaman ${idx + 1}.jpg`;
-        link.href = imgData;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
         
-        // Wait briefly between downloads to avoid browser block or concurrency issues
-        await new Promise(resolve => setTimeout(resolve, 400));
+        if (idx > 0) {
+          pdf.addPage();
+        }
+        
+        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
       }
+
+      pdf.save(fileName);
     } catch (error) {
-      console.error('Failed to generate high-fidelity JPG download:', error);
+      console.error('Failed to generate high-fidelity PDF download:', error);
       // Fallback to standard print
       handlePrint();
     } finally {
+      // Restore parent scroll position
+      if (container) {
+        container.scrollTop = originalScrollTop;
+      }
       // Restore original styling classes
       if (reportRef.current) {
         reportRef.current.className = originalClassName;
@@ -563,20 +582,20 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
               </select>
             </div>
 
-            <button
-              onClick={handleDownloadJPG}
+             <button
+              onClick={handleDownloadPDF}
               disabled={currentMonthData.length === 0 || isExporting}
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold uppercase tracking-widest px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-emerald-100 disabled:opacity-45"
             >
               {isExporting ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Mengunduh...
+                  Mengunduh PDF...
                 </>
               ) : (
                 <>
                   <Download className="w-4 h-4" />
-                  Unduh Gambar (JPG)
+                  Unduh Laporan (PDF)
                 </>
               )}
             </button>
@@ -621,11 +640,11 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             </div>
 
             <div className="pt-4 border-t border-slate-100 space-y-3.5">
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Petunjuk Ekspor JPG</h4>
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Petunjuk Ekspor PDF</h4>
               <ul className="text-[10.5px] text-slate-500 font-semibold space-y-2 list-disc list-inside leading-relaxed">
-                <li>Klik tombol <strong className="text-emerald-600">Unduh Gambar (JPG)</strong> untuk mengunduh laporan penjualan berupa gambar JPG berkualitas tinggi per halaman secara otomatis.</li>
-                <li>Jika browser Anda memunculkan dialog konfirmasi pengunduhan ganda, harap pilih <strong className="text-emerald-600">"Izinkan" (Allow)</strong> agar semua halaman terunduh secara lengkap.</li>
-                <li>Jika Anda ingin mencetak langsung menggunakan printer fisik, klik <strong className="text-indigo-600">Cetak via Browser</strong>.</li>
+                <li>Klik tombol <strong className="text-emerald-600">Unduh Laporan (PDF)</strong> untuk mengunduh dokumen laporan utuh dalam satu file PDF berkualitas tinggi.</li>
+                <li>Tata letak dan daftar rincian penjualan harian pada PDF ini dirancang agar presisi, tajam, dan sama persis dengan tabel visual yang Anda lihat di layar.</li>
+                <li>Jika Anda ingin mencetak langsung menggunakan printer fisik atau menyimpan dengan dialog bawaan sistem, klik <strong className="text-indigo-600">Cetak via Browser</strong>.</li>
               </ul>
             </div>
 
@@ -1053,13 +1072,13 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                                         {day.dayOfWeek}
                                       </span>
                                     </td>
-                                    <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalInstan)}</td>
-                                    <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalReguler)}</td>
-                                    <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalManual)}</td>
-                                    <td className="p-2.5 text-right font-mono font-black text-slate-900 bg-indigo-50/10 whitespace-nowrap">
+                                    <td className="p-2.5 text-right font-mono font-bold text-emerald-600 whitespace-nowrap">{formatRupiah(day.totalInstan)}</td>
+                                    <td className="p-2.5 text-right font-mono font-bold text-blue-600 whitespace-nowrap">{formatRupiah(day.totalReguler)}</td>
+                                    <td className="p-2.5 text-right font-mono font-bold text-amber-600 whitespace-nowrap">{formatRupiah(day.totalManual)}</td>
+                                    <td className="p-2.5 text-right font-mono font-black text-indigo-600 bg-indigo-50/10 whitespace-nowrap">
                                       {formatRupiah(day.totalAll)}
                                     </td>
-                                    <td className="p-2.5 text-right font-mono font-bold text-indigo-700 whitespace-nowrap">
+                                    <td className="p-2.5 text-right font-mono font-bold text-slate-800 whitespace-nowrap">
                                       {day.txAll} Tx
                                     </td>
                                     <td className="p-2.5 pl-4">

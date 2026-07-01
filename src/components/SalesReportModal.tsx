@@ -364,77 +364,117 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     try {
       const formattedMonth = formatMonthLabel(selectedMonth);
       const fileName = `Laporan Penjualan (${formattedMonth}).pdf`;
-      const element = reportRef.current;
-      
-      // Temporarily remove transform scale for capturing
-      const originalStyle = element.style.transform;
-      element.style.transform = 'none';
-
-      const canvas = await html2canvas(element, {
-        scale: 2, // High resolution for beautiful text and charts
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        scrollY: 0,
-        scrollX: 0,
-        windowWidth: 794, // Standard A4 pixel width representation for crisp styling
-        onclone: (clonedDoc) => {
-          // Parse and convert any Tailwind CSS oklch variables/colors to rgb standard to prevent html2canvas crashing
-          const styles = clonedDoc.querySelectorAll('style');
-          styles.forEach(style => {
-            style.innerHTML = style.innerHTML.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
-              return parseAndConvertOklch(match, content);
-            });
-          });
-
-          // Also check and replace inline oklch styles on elements in clonedDoc
-          const elementsWithInlineStyle = clonedDoc.querySelectorAll('[style]');
-          elementsWithInlineStyle.forEach(el => {
-            const inlineStyle = el.getAttribute('style');
-            if (inlineStyle && inlineStyle.toLowerCase().includes('oklch')) {
-              el.setAttribute('style', inlineStyle.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
-                return parseAndConvertOklch(match, content);
-              }));
-            }
-          });
-
-          const clonedEl = clonedDoc.querySelector('[data-report-paper]') as HTMLElement;
-          if (clonedEl) {
-            clonedEl.classList.remove('scale-[0.85]', 'sm:scale-100', 'origin-top', 'max-w-full', 'shadow-2xl', 'border');
-            clonedEl.style.transform = 'none';
-            clonedEl.style.margin = '0';
-            clonedEl.style.boxShadow = 'none';
-            clonedEl.style.border = 'none';
-            clonedEl.style.width = '210mm';
-            clonedEl.style.minHeight = '297mm';
-          }
-        }
-      });
-
-      element.style.transform = originalStyle;
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 297; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
       
-      let heightLeft = imgHeight;
-      let position = 0;
+      const sections = ['1', '2', '3'];
+      
+      for (let idx = 0; idx < sections.length; idx++) {
+        const sectionNum = sections[idx];
+        const targetSection = reportRef.current.querySelector(`[data-pdf-section="${sectionNum}"]`);
+        if (!targetSection) continue;
+        
+        // Create off-screen container styled as a perfect A4 sheet
+        const tempContainer = document.createElement('div');
+        tempContainer.style.position = 'fixed';
+        tempContainer.style.left = '-9999px';
+        tempContainer.style.top = '0';
+        tempContainer.style.width = '210mm';
+        tempContainer.style.height = '297mm';
+        tempContainer.style.boxSizing = 'border-box';
+        tempContainer.style.padding = '12mm 15mm 12mm 15mm'; // Elegant PDF margins
+        tempContainer.style.backgroundColor = '#ffffff';
+        tempContainer.style.color = '#0f172a';
+        tempContainer.style.display = 'flex';
+        tempContainer.style.flexDirection = 'column';
+        tempContainer.style.justifyContent = 'space-between';
+        tempContainer.className = 'font-sans text-slate-900';
+        
+        // Clone the target section node so we don't mess with the live DOM
+        const clonedNode = targetSection.cloneNode(true) as HTMLElement;
+        
+        // Clean up print classes that are only relevant for browser standard printing
+        clonedNode.classList.remove('print-page-break-before', 'pt-10', 'pt-6');
+        clonedNode.style.marginTop = '0';
+        clonedNode.style.paddingTop = '0';
+        clonedNode.style.width = '100%';
+        
+        // Put the cloned node inside our A4 temp container
+        const contentWrapper = document.createElement('div');
+        contentWrapper.style.width = '100%';
+        contentWrapper.appendChild(clonedNode);
+        tempContainer.appendChild(contentWrapper);
+        
+        // Add a beautiful matching footer with Page Number
+        const footerEl = document.createElement('div');
+        footerEl.style.width = '100%';
+        footerEl.style.display = 'flex';
+        footerEl.style.justifyContent = 'space-between';
+        footerEl.style.alignItems = 'center';
+        footerEl.style.borderTop = '1px solid #e2e8f0';
+        footerEl.style.paddingTop = '6px';
+        footerEl.style.marginTop = 'auto';
+        footerEl.style.fontSize = '8px';
+        footerEl.style.fontWeight = '700';
+        footerEl.style.color = '#94a3b8'; // text-slate-400
+        footerEl.style.fontFamily = 'monospace';
+        
+        const docTitleText = document.createElement('span');
+        docTitleText.innerText = `${reportTitle} - Periode ${formattedMonth}`;
+        
+        const pageNumText = document.createElement('span');
+        pageNumText.innerText = `Halaman ${idx + 1} dari ${sections.length}`;
+        
+        footerEl.appendChild(docTitleText);
+        footerEl.appendChild(pageNumText);
+        tempContainer.appendChild(footerEl);
+        
+        document.body.appendChild(tempContainer);
+        
+        // Wait briefly for reflow
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        const canvas = await html2canvas(tempContainer, {
+          scale: 2, // High resolution for beautiful, sharp text and layout
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          scrollY: 0,
+          scrollX: 0,
+          windowWidth: 794, // Standard A4 pixel width at 96 DPI
+          onclone: (clonedDoc) => {
+            // Fix any tailwind variables that use oklch to prevent crashing
+            const styles = clonedDoc.querySelectorAll('style');
+            styles.forEach(style => {
+              style.innerHTML = style.innerHTML.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
+                return parseAndConvertOklch(match, content);
+              });
+            });
 
-      // Page 1
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      // Multi-page handling
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+            const elementsWithInlineStyle = clonedDoc.querySelectorAll('[style]');
+            elementsWithInlineStyle.forEach(el => {
+              const inlineStyle = el.getAttribute('style');
+              if (inlineStyle && inlineStyle.toLowerCase().includes('oklch')) {
+                el.setAttribute('style', inlineStyle.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
+                  return parseAndConvertOklch(match, content);
+                }));
+              }
+            });
+          }
+        });
+        
+        document.body.removeChild(tempContainer);
+        
+        const imgData = canvas.toDataURL('image/jpeg', 0.98);
+        
+        if (idx > 0) {
+          pdf.addPage();
+        }
+        
+        // Render precisely onto A4 canvas in PDF
+        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
       }
-
+      
       pdf.save(fileName);
     } catch (error) {
       console.error('Failed to generate high-fidelity PDF download:', error);
@@ -650,7 +690,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
               <div className="print-section text-slate-900 font-sans text-xs w-full">
                 
                 {/* PAGE 1: HEADER & EXECUTIVE SUMMARY */}
-                <div className="space-y-6">
+                <div data-pdf-section="1" className="space-y-6">
                   
                   {/* Corporate Header Section */}
                   <div className="border-b-2 border-slate-900 pb-4 flex justify-between items-end">
@@ -861,7 +901,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                 </div>
 
                 {/* PAGE 2: WEEKLY BREAKDOWN, CHANNELS AND TRANSACTIONS */}
-                <div className="print-page-break-before space-y-6 pt-10">
+                <div data-pdf-section="2" className="print-page-break-before space-y-6 pt-10">
                   
                   {/* Section 4: Analisis Penjualan Mingguan (Weekly Breakdown) */}
                   <div className="space-y-3.5">
@@ -941,7 +981,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                   </div>
 
                   {/* Section 6: Rincian Transaksi Harian (Daily Transactions Detail) */}
-                  <div className="space-y-4 print-page-break-before pt-6">
+                  <div data-pdf-section="3" className="space-y-4 print-page-break-before pt-6">
                     <div className="flex justify-between items-end border-b border-slate-200 pb-2">
                       <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
                         <FileText className="w-4.5 h-4.5 text-indigo-600" /> VI. DAFTAR RINCIAN PENJUALAN HARIAN

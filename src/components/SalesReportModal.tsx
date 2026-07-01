@@ -1004,19 +1004,19 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                           {currentMonthData.map(day => {
                             // Find matching events
                             const dayEvents = events.filter(e => e.date === day.date);
-                            const isWeekend = day.dayOfWeek === 'Sabtu' || day.dayOfWeek === 'Minggu' || day.dayOfWeek === 'Saturday' || day.dayOfWeek === 'Sunday';
+                            const isSunday = day.dayOfWeek === 'Minggu' || day.dayOfWeek === 'Sunday';
 
                             return (
                               <tr 
                                 key={day.date} 
                                 className={`transition-colors hover:bg-slate-50/80 ${
-                                  isWeekend ? 'bg-amber-50/30' : 'even:bg-slate-50/30'
+                                  isSunday ? 'bg-amber-50/30' : 'even:bg-slate-50/30'
                                 }`}
                               >
                                 <td className="p-2.5 pl-4 font-mono font-bold text-slate-800 whitespace-nowrap">{day.date}</td>
                                 <td className="p-2.5">
                                   <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                    isWeekend 
+                                    isSunday 
                                       ? 'bg-amber-100 text-amber-800 border border-amber-200/55' 
                                       : 'bg-slate-100 text-slate-600 border border-slate-200/30'
                                   }`}>

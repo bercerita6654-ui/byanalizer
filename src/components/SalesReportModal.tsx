@@ -41,6 +41,80 @@ function formatMonthLabel(yearMonthStr: string): string {
   return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(dateObj);
 }
 
+function parseAndConvertOklch(match: string, content: string): string {
+  try {
+    const normalized = content.replace(/,/g, ' ').replace(/\//g, ' ').trim();
+    const parts = normalized.split(/\s+/);
+    if (parts.length < 3) return match;
+    
+    let lStr = parts[0];
+    let l = parseFloat(lStr);
+    if (lStr.endsWith('%')) {
+      l = l / 100;
+    }
+    
+    let cStr = parts[1];
+    let c = parseFloat(cStr);
+    if (cStr.endsWith('%')) {
+      c = (c / 100) * 0.4;
+    }
+    
+    let hStr = parts[2];
+    let h = parseFloat(hStr);
+    if (hStr.endsWith('deg')) {
+      h = parseFloat(hStr);
+    } else if (hStr.endsWith('turn')) {
+      h = parseFloat(hStr) * 360;
+    } else if (hStr.endsWith('rad')) {
+      h = parseFloat(hStr) * (180 / Math.PI);
+    } else if (hStr.endsWith('grad')) {
+      h = parseFloat(hStr) * 0.9;
+    }
+    
+    if (isNaN(l) || isNaN(c) || isNaN(h)) return match;
+    
+    const hRad = (h * Math.PI) / 180;
+    const a = c * Math.cos(hRad);
+    const b_val = c * Math.sin(hRad);
+    
+    const l_ = l + 0.3963377774 * a + 0.2158037573 * b_val;
+    const m_ = l - 0.1055613458 * a - 0.0638541728 * b_val;
+    const s_ = l - 0.0894841775 * a - 1.2914855480 * b_val;
+    
+    const l1 = l_ * l_ * l_;
+    const m1 = m_ * m_ * m_;
+    const s1 = s_ * s_ * s_;
+    
+    const r = +4.0767416621 * l1 - 3.3077115913 * m1 + 0.2309699292 * s1;
+    const g = -1.2684380046 * l1 + 2.6097574011 * m1 - 0.3413193965 * s1;
+    const b_rgb = -0.0041960863 * l1 - 0.7034186147 * m1 + 1.7076147010 * s1;
+    
+    const fn = (val: number) => {
+      const cVal = Math.max(0, val);
+      return cVal <= 0.0031308 ? 12.92 * cVal : 1.055 * Math.pow(cVal, 1 / 2.4) - 0.055;
+    };
+    
+    const R = Math.round(Math.max(0, Math.min(1, fn(r))) * 255);
+    const G = Math.round(Math.max(0, Math.min(1, fn(g))) * 255);
+    const B = Math.round(Math.max(0, Math.min(1, fn(b_rgb))) * 255);
+    
+    let alphaStr = parts[3];
+    if (alphaStr) {
+      let alpha = parseFloat(alphaStr);
+      if (alphaStr.endsWith('%')) {
+        alpha = alpha / 100;
+      }
+      if (!isNaN(alpha)) {
+        return `rgba(${R}, ${G}, ${B}, ${alpha})`;
+      }
+    }
+    
+    return `rgb(${R}, ${G}, ${B})`;
+  } catch (e) {
+    return match;
+  }
+}
+
 export default function SalesReportModal({ isOpen, onClose, salesData, events }: SalesReportModalProps) {
   // Extract all available months from the dataset
   const availableMonths = useMemo(() => {
@@ -306,6 +380,25 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         scrollX: 0,
         windowWidth: 794, // Standard A4 pixel width representation for crisp styling
         onclone: (clonedDoc) => {
+          // Parse and convert any Tailwind CSS oklch variables/colors to rgb standard to prevent html2canvas crashing
+          const styles = clonedDoc.querySelectorAll('style');
+          styles.forEach(style => {
+            style.innerHTML = style.innerHTML.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
+              return parseAndConvertOklch(match, content);
+            });
+          });
+
+          // Also check and replace inline oklch styles on elements in clonedDoc
+          const elementsWithInlineStyle = clonedDoc.querySelectorAll('[style]');
+          elementsWithInlineStyle.forEach(el => {
+            const inlineStyle = el.getAttribute('style');
+            if (inlineStyle && inlineStyle.toLowerCase().includes('oklch')) {
+              el.setAttribute('style', inlineStyle.replace(/oklch\(([^)]+)\)/gi, (match, content) => {
+                return parseAndConvertOklch(match, content);
+              }));
+            }
+          });
+
           const clonedEl = clonedDoc.querySelector('[data-report-paper]') as HTMLElement;
           if (clonedEl) {
             clonedEl.classList.remove('scale-[0.85]', 'sm:scale-100', 'origin-top', 'max-w-full', 'shadow-2xl', 'border');

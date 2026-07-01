@@ -254,10 +254,29 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     };
   }, [selectedMonth, salesData, currentMonthSummary]);
 
+  // Check if we are in an iframe
+  const [isInIframe, setIsInIframe] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      setIsInIframe(window.self !== window.top);
+    } catch (e) {
+      setIsInIframe(true);
+    }
+  }, []);
+
   // Handlers
   const handlePrint = () => {
+    const originalTitle = document.title;
+    const formattedMonth = formatMonthLabel(selectedMonth);
+    // Set document title exactly as requested so standard print uses it as the file name
+    document.title = `Laporan Penjualan (${formattedMonth})`;
     window.focus();
     window.print();
+    // Restore original title shortly after
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1000);
   };
 
   if (!isOpen) return null;
@@ -414,14 +433,28 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             </div>
 
             <div className="pt-4 border-t border-slate-100 space-y-3">
-              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 space-y-1.5 text-amber-900">
-                <span className="text-[10px] font-black uppercase tracking-wider block">⚠️ Tips Jika Cetak Tidak Respon</span>
-                <p className="text-[10px] leading-relaxed font-semibold">
-                  Sistem keamanan preview (iframe) AI Studio kadang memblokir tombol cetak bawaan browser.
-                </p>
-                <p className="text-[10px] leading-relaxed font-bold text-indigo-900">
-                  Silakan klik tombol <strong className="text-indigo-600">Buka di Tab Baru</strong> (ikon panah keluar di pojok kanan atas preview), lalu coba kembali. Di tab baru, fitur Cetak akan langsung berfungsi 100% lancar!
-                </p>
+              <div className={`border rounded-xl p-3 space-y-1.5 transition-all duration-300 ${
+                isInIframe 
+                  ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-sm' 
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              }`}>
+                <span className="text-[10px] font-black uppercase tracking-wider block">
+                  {isInIframe ? '⚠️ Buka di Tab Baru Untuk Mencetak' : '✅ Mode Cetak Aktif'}
+                </span>
+                {isInIframe ? (
+                  <>
+                    <p className="text-[10px] leading-relaxed font-semibold text-amber-900">
+                      Sistem keamanan preview (iframe) AI Studio memblokir tombol cetak bawaan browser.
+                    </p>
+                    <p className="text-[10px] leading-relaxed font-bold text-indigo-900">
+                      Silakan klik tombol <strong className="text-indigo-600">Buka di Tab Baru ↗️</strong> (ikon panah keluar di pojok kanan atas preview), lalu coba kembali. Fitur Cetak akan langsung berfungsi 100% lancar!
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[10px] leading-relaxed font-semibold text-emerald-800">
+                    Aplikasi berjalan mandiri di tab baru. Tombol <strong>Cetak / Simpan PDF</strong> di atas dapat digunakan dengan lancar!
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -725,50 +758,74 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                   </div>
 
                   {/* Section 6: Rincian Transaksi Harian (Daily Transactions Detail) */}
-                  <div className="space-y-3.5 print-page-break-before pt-5">
-                    <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-1.5 flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-indigo-600" /> VI. DAFTAR RINCIAN PENJUALAN HARIAN
-                    </h3>
+                  <div className="space-y-4 print-page-break-before pt-6">
+                    <div className="flex justify-between items-end border-b border-slate-200 pb-2">
+                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                        <FileText className="w-4.5 h-4.5 text-indigo-600" /> VI. DAFTAR RINCIAN PENJUALAN HARIAN
+                      </h3>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Laporan Transaksi Valid</span>
+                    </div>
                     
-                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm bg-white">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-slate-100 text-[9px] font-black text-slate-600 border-b border-slate-200 uppercase">
-                            <th className="p-2 pl-3">Tanggal</th>
-                            <th className="p-2">Hari</th>
-                            <th className="p-2 text-right">Omzet Instan</th>
-                            <th className="p-2 text-right">Omzet Reguler</th>
-                            <th className="p-2 text-right">Omzet Manual</th>
-                            <th className="p-2 text-right">Omzet Total</th>
-                            <th className="p-2 text-right">Tx Total</th>
-                            <th className="p-2">Kegiatan Kampanye / Event</th>
+                          <tr className="bg-slate-800 text-white text-[9.5px] font-bold uppercase tracking-wider border-b border-slate-900">
+                            <th className="p-3 pl-4">Tanggal</th>
+                            <th className="p-3">Hari</th>
+                            <th className="p-3 text-right">Omzet Instan</th>
+                            <th className="p-3 text-right">Omzet Reguler</th>
+                            <th className="p-3 text-right">Omzet Manual</th>
+                            <th className="p-3 text-right">Omzet Total</th>
+                            <th className="p-3 text-right">Tx Total</th>
+                            <th className="p-3 pl-4">Kegiatan Kampanye / Event</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 text-[9px] font-semibold text-slate-700">
+                        <tbody className="divide-y divide-slate-100 text-[10px] font-semibold text-slate-700">
                           {currentMonthData.map(day => {
                             // Find matching events
                             const dayEvents = events.filter(e => e.date === day.date);
+                            const isWeekend = day.dayOfWeek === 'Sabtu' || day.dayOfWeek === 'Minggu' || day.dayOfWeek === 'Saturday' || day.dayOfWeek === 'Sunday';
 
                             return (
-                              <tr key={day.date} className="hover:bg-slate-50/50">
-                                <td className="p-2 pl-3 font-mono text-slate-800">{day.date}</td>
-                                <td className="p-2 text-slate-500">{day.dayOfWeek}</td>
-                                <td className="p-2 text-right font-mono text-slate-400">{formatRupiah(day.totalInstan)}</td>
-                                <td className="p-2 text-right font-mono text-slate-400">{formatRupiah(day.totalReguler)}</td>
-                                <td className="p-2 text-right font-mono text-slate-400">{formatRupiah(day.totalManual)}</td>
-                                <td className="p-2 text-right font-mono font-bold text-slate-950">{formatRupiah(day.totalAll)}</td>
-                                <td className="p-2 text-right font-mono font-bold text-indigo-600">{day.txAll} Tx</td>
-                                <td className="p-2 truncate max-w-[180px]">
+                              <tr 
+                                key={day.date} 
+                                className={`transition-colors hover:bg-slate-50/80 ${
+                                  isWeekend ? 'bg-amber-50/30' : 'even:bg-slate-50/30'
+                                }`}
+                              >
+                                <td className="p-2.5 pl-4 font-mono font-bold text-slate-800 whitespace-nowrap">{day.date}</td>
+                                <td className="p-2.5">
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                    isWeekend 
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-200/55' 
+                                      : 'bg-slate-100 text-slate-600 border border-slate-200/30'
+                                  }`}>
+                                    {day.dayOfWeek}
+                                  </span>
+                                </td>
+                                <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalInstan)}</td>
+                                <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalReguler)}</td>
+                                <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalManual)}</td>
+                                <td className="p-2.5 text-right font-mono font-black text-slate-900 bg-indigo-50/10 whitespace-nowrap">
+                                  {formatRupiah(day.totalAll)}
+                                </td>
+                                <td className="p-2.5 text-right font-mono font-bold text-indigo-700 whitespace-nowrap">
+                                  {day.txAll} Tx
+                                </td>
+                                <td className="p-2.5 pl-4">
                                   {dayEvents.length > 0 ? (
-                                    <div className="flex flex-wrap gap-1">
+                                    <div className="flex flex-wrap gap-1 max-w-[200px]">
                                       {dayEvents.map(e => (
-                                        <span key={e.id} className="bg-indigo-50 border border-indigo-100 text-[8px] px-1 py-0.2 rounded font-bold text-indigo-700">
-                                          📣 {e.title}
+                                        <span 
+                                          key={e.id} 
+                                          className="bg-indigo-100/80 border border-indigo-200 text-[8px] px-1.5 py-0.5 rounded-md font-bold text-indigo-800 flex items-center gap-0.5 shadow-sm"
+                                        >
+                                          <span className="animate-pulse">📢</span> {e.title}
                                         </span>
                                       ))}
                                     </div>
                                   ) : (
-                                    <span className="text-slate-300 italic">-</span>
+                                    <span className="text-slate-300 font-normal italic">-</span>
                                   )}
                                 </td>
                               </tr>

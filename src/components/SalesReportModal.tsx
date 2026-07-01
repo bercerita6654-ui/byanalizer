@@ -179,6 +179,36 @@ function parseAndConvertOklab(match: string, content: string): string {
   }
 }
 
+function cleanColorString(val: string): string {
+  if (typeof val !== 'string') return val;
+  if (!val.includes('oklch') && !val.includes('oklab')) return val;
+  
+  let processed = val
+    .replace(/oklch\(([^)]+)\)/gi, (match, content) => {
+      const res = parseAndConvertOklch(match, content);
+      if (res.startsWith('oklch')) {
+        if (match.includes('white') || match.includes('100%')) return 'rgb(255, 255, 255)';
+        if (match.includes('black') || match.includes(' 0 ')) return 'rgb(0, 0, 0)';
+        return 'rgb(79, 70, 229)';
+      }
+      return res;
+    })
+    .replace(/oklab\(([^)]+)\)/gi, (match, content) => {
+      const res = parseAndConvertOklab(match, content);
+      if (res.startsWith('oklab')) {
+        return 'rgb(79, 70, 229)';
+      }
+      return res;
+    });
+
+  if (processed.includes('oklch') || processed.includes('oklab')) {
+    processed = processed.replace(/oklch\([^)]+\)/gi, 'rgb(79, 70, 229)');
+    processed = processed.replace(/oklab\([^)]+\)/gi, 'rgb(79, 70, 229)');
+  }
+  
+  return processed;
+}
+
 export default function SalesReportModal({ isOpen, onClose, salesData, events }: SalesReportModalProps) {
   // Extract all available months from the dataset
   const availableMonths = useMemo(() => {
@@ -451,6 +481,35 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           scrollX: 0,
           windowWidth: 1200,
           onclone: (clonedDoc) => {
+            const win = clonedDoc.defaultView as any;
+            if (win) {
+              const originalGetComputedStyle = win.getComputedStyle;
+              win.getComputedStyle = function(el: any, pseudo: any) {
+                const style = originalGetComputedStyle.call(this, el, pseudo);
+                return new Proxy(style, {
+                  get(target: any, prop: string | symbol) {
+                    if (prop === 'getPropertyValue') {
+                      return function(propertyName: string) {
+                        const val = target.getPropertyValue(propertyName);
+                        if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
+                          return cleanColorString(val);
+                        }
+                        return val;
+                      };
+                    }
+                    const val = target[prop];
+                    if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
+                      return cleanColorString(val);
+                    }
+                    if (typeof val === 'function') {
+                      return val.bind(target);
+                    }
+                    return val;
+                  }
+                });
+              };
+            }
+
             const clonedPages = clonedDoc.querySelectorAll('[data-pdf-page]');
             clonedPages.forEach((clonedP) => {
               const cp = clonedP as HTMLElement;
@@ -465,27 +524,53 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
               cp.style.boxSizing = 'border-box';
             });
 
-            const styles = clonedDoc.querySelectorAll('style');
-            styles.forEach(style => {
-              style.innerHTML = style.innerHTML
-                .replace(/oklch\(([^)]+)\)/gi, (match, content) => parseAndConvertOklch(match, content))
-                .replace(/oklab\(([^)]+)\)/gi, (match, content) => parseAndConvertOklab(match, content));
+            // Clean and convert all oklch and oklab colors in stylesheets
+            clonedDoc.querySelectorAll('link[rel="stylesheet"], style').forEach(el => {
+              el.remove();
             });
+
+            let combinedCSS = '';
+            for (let i = 0; i < document.styleSheets.length; i++) {
+              const sheet = document.styleSheets[i];
+              try {
+                if (sheet.cssRules) {
+                  const rulesArray = Array.from(sheet.cssRules);
+                  const sheetCSS = rulesArray.map(rule => rule.cssText).join('\n');
+                  combinedCSS += sheetCSS + '\n';
+                }
+              } catch (e) {
+                console.warn('Could not read cssRules from stylesheet synchronously:', sheet.href, e);
+              }
+            }
+
+            if (combinedCSS) {
+              combinedCSS = cleanColorString(combinedCSS);
+
+              const styleEl = clonedDoc.createElement('style');
+              styleEl.innerHTML = combinedCSS;
+              clonedDoc.head.appendChild(styleEl);
+            }
 
             const elementsWithInlineStyle = clonedDoc.querySelectorAll('[style]');
             elementsWithInlineStyle.forEach(el => {
               const inlineStyle = el.getAttribute('style');
               if (inlineStyle) {
-                let updatedStyle = inlineStyle;
-                if (inlineStyle.toLowerCase().includes('oklch')) {
-                  updatedStyle = updatedStyle.replace(/oklch\(([^)]+)\)/gi, (match, content) => parseAndConvertOklch(match, content));
-                }
-                if (inlineStyle.toLowerCase().includes('oklab')) {
-                  updatedStyle = updatedStyle.replace(/oklab\(([^)]+)\)/gi, (match, content) => parseAndConvertOklab(match, content));
-                }
+                const updatedStyle = cleanColorString(inlineStyle);
                 if (updatedStyle !== inlineStyle) {
                   el.setAttribute('style', updatedStyle);
                 }
+              }
+            });
+
+            // Also clean any svg elements with oklch/oklab fill or stroke attributes
+            clonedDoc.querySelectorAll('[fill], [stroke]').forEach(el => {
+              const fill = el.getAttribute('fill');
+              if (fill && (fill.includes('oklch') || fill.includes('oklab'))) {
+                el.setAttribute('fill', cleanColorString(fill));
+              }
+              const stroke = el.getAttribute('stroke');
+              if (stroke && (stroke.includes('oklch') || stroke.includes('oklab'))) {
+                el.setAttribute('stroke', cleanColorString(stroke));
               }
             });
           }
@@ -549,7 +634,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex justify-center items-start overflow-y-auto p-4 sm:p-6 select-none md:select-text modal-backdrop">
+    <div className="fixed bottom-6 right-6 z-[100] select-none pointer-events-none flex flex-col items-end gap-3 font-sans">
       
       {/* Dynamic CSS Stylesheet for printing directly injected */}
       <style>{`
@@ -622,57 +707,58 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         }
       `}</style>
 
-      {/* Sleek, Minimal, Professional Progress Overlay */}
-      <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200 shadow-2xl space-y-6 text-center relative overflow-hidden animate-in zoom-in-95 duration-250">
-        <div className="absolute -right-12 -top-12 w-32 h-32 rounded-full bg-indigo-50 blur-3xl opacity-70" />
-        <div className="absolute -left-12 -bottom-12 w-32 h-32 rounded-full bg-emerald-50 blur-3xl opacity-70" />
-
-        <div className="relative space-y-5">
-          {/* Animated Spinner with Icon */}
-          <div className="mx-auto w-16 h-16 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center relative shadow-sm">
-            <div className="absolute inset-0 rounded-2xl border-2 border-indigo-100" />
-            <div className="absolute inset-0 rounded-2xl border-2 border-indigo-600 border-t-transparent animate-spin" />
-            <Download className="w-6 h-6 text-indigo-600 relative z-10" />
+      {/* Sleek, Non-blocking Floating Progress Toast */}
+      <div className="pointer-events-auto max-w-sm w-[360px] bg-white border border-slate-200 rounded-2xl p-4 shadow-2xl space-y-3.5 relative overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
+        <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-indigo-50/50 blur-2xl opacity-70" />
+        
+        <div className="flex items-start gap-3 relative">
+          <div className="p-2 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center shrink-0">
+            <span className="relative flex h-5 w-5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-5 w-5 bg-indigo-500 items-center justify-center">
+                <Download className="w-3 h-3 text-white" />
+              </span>
+            </span>
           </div>
-
-          <div className="space-y-2">
-            <h3 className="text-base font-black text-slate-800 leading-snug">Menyiapkan Unduhan Laporan PDF</h3>
-            <p className="text-xs text-slate-500 font-semibold leading-relaxed px-4">
-              Semua laporan bulanan Anda sedang dikonversi secara otomatis ke ukuran <strong className="text-slate-800 font-bold">A4 Potret</strong> resolusi tinggi.
+          
+          <div className="space-y-1 min-w-0 flex-1">
+            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Mengekspor Laporan PDF...</h4>
+            <p className="text-[10.5px] font-semibold text-slate-500 leading-normal">
+              Laporan bulanan sedang dikonversi ke ukuran <strong className="text-slate-800">A4 Potret</strong> resolusi tinggi secara otomatis.
             </p>
           </div>
+        </div>
 
-          {/* Progress Status Card */}
-          <div className="bg-slate-50/80 border border-slate-200/50 p-4 rounded-2xl space-y-3.5 text-left">
-            <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-400 tracking-wider">
-              <span>Status Unduhan</span>
-              <span className="text-indigo-600 font-bold">
-                {activeExportIndex >= 0 ? `${activeExportIndex + 1} / ${availableMonths.length} Laporan` : 'Memulai...'}
-              </span>
-            </div>
-            
-            <div className="space-y-1.5">
-              <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-indigo-600 rounded-full transition-all duration-300"
-                  style={{ width: `${availableMonths.length > 0 ? ((activeExportIndex + 1) / availableMonths.length) * 100 : 0}%` }}
-                />
-              </div>
-              <p className="text-xs font-bold text-slate-700 animate-pulse truncate">
-                {exportStep || 'Menyiapkan pengeksporan otomatis...'}
-              </p>
-            </div>
-
-            <div className="border-t border-slate-200/50 pt-2.5 flex items-center gap-2 text-[9.5px] text-slate-400 font-semibold leading-none">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-              <span>Memproses dengan konversi vektor tajam 300 DPI</span>
-            </div>
+        {/* Progress bar and step info */}
+        <div className="space-y-2 bg-slate-50 border border-slate-100 p-3 rounded-xl relative z-10">
+          <div className="flex items-center justify-between text-[9px] font-black uppercase text-slate-400 tracking-wider">
+            <span>Progress Ekspor</span>
+            <span className="text-indigo-600 font-bold">
+              {activeExportIndex >= 0 ? `${activeExportIndex + 1} / ${availableMonths.length} Laporan` : 'Memulai...'}
+            </span>
           </div>
+
+          <div className="space-y-1.5">
+            <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-indigo-600 rounded-full transition-all duration-300"
+                style={{ width: `${availableMonths.length > 0 ? ((activeExportIndex + 1) / availableMonths.length) * 100 : 0}%` }}
+              />
+            </div>
+            <p className="text-[10px] font-bold text-slate-600 animate-pulse truncate leading-tight">
+              {exportStep || 'Mempersiapkan...'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 text-[9px] text-slate-400 font-bold justify-center pt-2 border-t border-slate-100">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+          <span>Vektor Tajam 300 DPI • Tanpa Dialog Popup</span>
         </div>
       </div>
 
       {/* Hidden Offscreen Container for rendering high-fidelity A4 pages in DOM */}
-      <div className="fixed -left-[9999px] -top-[9999px] w-[210mm] bg-white no-print" style={{ zIndex: -1000 }}>
+      <div className="fixed -left-[9999px] -top-[9999px] w-[210mm] bg-white no-print pointer-events-none" style={{ zIndex: -1000 }}>
             <div ref={reportRef} className="flex flex-col gap-8 w-[210mm] min-w-[210mm] select-text">
               
               {/* Actual Document to Print */}

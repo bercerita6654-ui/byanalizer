@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DailySales, MarketingEvent, ViewTab } from './types';
 import { parseDailySalesCSV, generateSampleMarketingEvents, formatDateIndo, formatRupiah, formatNumberIndo } from './utils';
 import SalesSummary from './components/SalesSummary';
+import SalesMoM from './components/SalesMoM';
 import SalesCharts from './components/SalesCharts';
 import SalesComparison from './components/SalesComparison';
 import SalesCalendar from './components/SalesCalendar';
@@ -542,6 +543,8 @@ export default function App() {
                 </div>
 
                 <SalesSummary salesData={filteredSalesData} />
+                
+                <SalesMoM salesData={salesData} />
                 
                 <SalesComparison salesData={salesData} />
 

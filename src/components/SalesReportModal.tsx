@@ -167,6 +167,16 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     return salesData.filter(day => day.date.startsWith(selectedMonth)).sort((a, b) => a.date.localeCompare(b.date));
   }, [selectedMonth, salesData]);
 
+  // Split currentMonthData into chunks of 15 rows for clean multipage rendering without overflow
+  const chunkedMonthData = useMemo(() => {
+    const chunkSize = 15;
+    const chunks = [];
+    for (let i = 0; i < currentMonthData.length; i += chunkSize) {
+      chunks.push(currentMonthData.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }, [currentMonthData]);
+
   // Selected Month Summary Stats
   const currentMonthSummary = useMemo(() => {
     if (currentMonthData.length === 0) return null;
@@ -867,7 +877,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                 {/* Page 1 Footer */}
                 <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400 mt-auto">
                   <span>{reportTitle} - Periode {formatMonthLabel(selectedMonth)}</span>
-                  <span>Halaman 1 dari 3</span>
+                  <span>Halaman 1 dari {2 + chunkedMonthData.length}</span>
                 </div>
               </div> {/* Closes data-pdf-page="1" */}
 
@@ -976,105 +986,115 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                 {/* Page 2 Footer */}
                 <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400 mt-auto">
                   <span>{reportTitle} - Periode {formatMonthLabel(selectedMonth)}</span>
-                  <span>Halaman 2 dari 3</span>
+                  <span>Halaman 2 dari {2 + chunkedMonthData.length}</span>
                 </div>
               </div> {/* Closes data-pdf-page="2" */}
 
-              {/* PAGE 3: DAILY DETAILED TRANSACTIONS LIST */}
-                <div data-pdf-page="3" className="bg-white w-[210mm] h-[297mm] p-10 shadow-2xl border border-slate-300 rounded-lg flex flex-col justify-between relative box-border overflow-hidden">
-                  <div className="space-y-4">
-                    {/* Running Page Header */}
-                    <div className="border-b border-slate-200 pb-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400">
-                      <span className="font-bold">{reportTitle}</span>
-                      <span>Periode: {formatMonthLabel(selectedMonth)}</span>
-                    </div>
-                    
-                    {/* Section 6: Rincian Transaksi Harian (Daily Transactions Detail) */}
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-end border-b border-slate-200 pb-2">
-                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                        <FileText className="w-4.5 h-4.5 text-indigo-600" /> VI. DAFTAR RINCIAN PENJUALAN HARIAN
-                      </h3>
-                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Laporan Transaksi Valid</span>
-                    </div>
-                    
-                    <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm bg-white">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-800 text-white text-[9.5px] font-bold uppercase tracking-wider border-b border-slate-900">
-                            <th className="p-3 pl-4">Tanggal</th>
-                            <th className="p-3">Hari</th>
-                            <th className="p-3 text-right">Omzet Instan</th>
-                            <th className="p-3 text-right">Omzet Reguler</th>
-                            <th className="p-3 text-right">Omzet Manual</th>
-                            <th className="p-3 text-right">Omzet Total</th>
-                            <th className="p-3 text-right">Tx Total</th>
-                            <th className="p-3 pl-4">Kegiatan Kampanye / Event</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-[10px] font-semibold text-slate-700">
-                          {currentMonthData.map(day => {
-                            // Find matching events
-                            const dayEvents = events.filter(e => e.date === day.date);
-                            const isSunday = day.dayOfWeek === 'Minggu' || day.dayOfWeek === 'Sunday';
-
-                            return (
-                              <tr 
-                                key={day.date} 
-                                className={`transition-colors hover:bg-slate-50/80 ${
-                                  isSunday ? 'bg-amber-50/30' : 'even:bg-slate-50/30'
-                                }`}
-                              >
-                                <td className="p-2.5 pl-4 font-mono font-bold text-slate-800 whitespace-nowrap">{day.date}</td>
-                                <td className="p-2.5">
-                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                    isSunday 
-                                      ? 'bg-amber-100 text-amber-800 border border-amber-200/55' 
-                                      : 'bg-slate-100 text-slate-600 border border-slate-200/30'
-                                  }`}>
-                                    {day.dayOfWeek}
-                                  </span>
-                                </td>
-                                <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalInstan)}</td>
-                                <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalReguler)}</td>
-                                <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalManual)}</td>
-                                <td className="p-2.5 text-right font-mono font-black text-slate-900 bg-indigo-50/10 whitespace-nowrap">
-                                  {formatRupiah(day.totalAll)}
-                                </td>
-                                <td className="p-2.5 text-right font-mono font-bold text-indigo-700 whitespace-nowrap">
-                                  {day.txAll} Tx
-                                </td>
-                                <td className="p-2.5 pl-4">
-                                  {dayEvents.length > 0 ? (
-                                    <div className="flex flex-wrap gap-1 max-w-[200px]">
-                                      {dayEvents.map(e => (
-                                        <span 
-                                          key={e.id} 
-                                          className="bg-indigo-100/80 border border-indigo-200 text-[8px] px-1.5 py-0.5 rounded-md font-bold text-indigo-800 flex items-center gap-0.5 shadow-sm"
-                                        >
-                                          <span className="animate-pulse">📢</span> {e.title}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <span className="text-slate-300 font-normal italic">-</span>
-                                  )}
-                                </td>
+              {/* DYNAMIC PAGES starting from PAGE 3 for Daily Detailed Transactions List */}
+              {chunkedMonthData.map((chunk, chunkIdx) => {
+                const pageNum = 3 + chunkIdx;
+                const totalPages = 2 + chunkedMonthData.length;
+                return (
+                  <div 
+                    key={chunkIdx}
+                    data-pdf-page={pageNum} 
+                    className="bg-white w-[210mm] h-[297mm] p-10 shadow-2xl border border-slate-300 rounded-lg flex flex-col justify-between relative box-border overflow-hidden"
+                  >
+                    <div className="space-y-4">
+                      {/* Running Page Header */}
+                      <div className="border-b border-slate-200 pb-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400">
+                        <span className="font-bold">{reportTitle}</span>
+                        <span>Periode: {formatMonthLabel(selectedMonth)}</span>
+                      </div>
+                      
+                      {/* Section 6: Rincian Transaksi Harian (Daily Transactions Detail) */}
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-end border-b border-slate-200 pb-2">
+                          <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                            <FileText className="w-4.5 h-4.5 text-indigo-600" /> VI. DAFTAR RINCIAN PENJUALAN HARIAN {chunkedMonthData.length > 1 ? `(BAGIAN ${chunkIdx + 1})` : ''}
+                          </h3>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Laporan Transaksi Valid</span>
+                        </div>
+                        
+                        <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm bg-white">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-slate-800 text-white text-[9.5px] font-bold uppercase tracking-wider border-b border-slate-900">
+                                <th className="p-3 pl-4">Tanggal</th>
+                                <th className="p-3">Hari</th>
+                                <th className="p-3 text-right">Omzet Instan</th>
+                                <th className="p-3 text-right">Omzet Reguler</th>
+                                <th className="p-3 text-right">Omzet Manual</th>
+                                <th className="p-3 text-right">Omzet Total</th>
+                                <th className="p-3 text-right">Tx Total</th>
+                                <th className="p-3 pl-4">Kegiatan Kampanye / Event</th>
                               </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-[10px] font-semibold text-slate-700">
+                              {chunk.map(day => {
+                                // Find matching events
+                                const dayEvents = events.filter(e => e.date === day.date);
+                                const isSunday = day.dayOfWeek === 'Minggu' || day.dayOfWeek === 'Sunday';
+
+                                return (
+                                  <tr 
+                                    key={day.date} 
+                                    className={`transition-colors hover:bg-slate-50/80 ${
+                                      isSunday ? 'bg-amber-50/30' : 'even:bg-slate-50/30'
+                                    }`}
+                                  >
+                                    <td className="p-2.5 pl-4 font-mono font-bold text-slate-800 whitespace-nowrap">{day.date}</td>
+                                    <td className="p-2.5">
+                                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                        isSunday 
+                                          ? 'bg-amber-100 text-amber-800 border border-amber-200/55' 
+                                          : 'bg-slate-100 text-slate-600 border border-slate-200/30'
+                                      }`}>
+                                        {day.dayOfWeek}
+                                      </span>
+                                    </td>
+                                    <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalInstan)}</td>
+                                    <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalReguler)}</td>
+                                    <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">{formatRupiah(day.totalManual)}</td>
+                                    <td className="p-2.5 text-right font-mono font-black text-slate-900 bg-indigo-50/10 whitespace-nowrap">
+                                      {formatRupiah(day.totalAll)}
+                                    </td>
+                                    <td className="p-2.5 text-right font-mono font-bold text-indigo-700 whitespace-nowrap">
+                                      {day.txAll} Tx
+                                    </td>
+                                    <td className="p-2.5 pl-4">
+                                      {dayEvents.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                          {dayEvents.map(e => (
+                                            <span 
+                                              key={e.id} 
+                                              className="bg-indigo-100/80 border border-indigo-200 text-[8px] px-1.5 py-0.5 rounded-md font-bold text-indigo-800 flex items-center gap-0.5 shadow-sm"
+                                            >
+                                              <span className="animate-pulse">📢</span> {e.title}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-300 font-normal italic">-</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div> {/* Closes space-y-4 */}
+                    
+                    {/* Page Footer */}
+                    <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400 mt-auto">
+                      <span>{reportTitle} - Periode {formatMonthLabel(selectedMonth)}</span>
+                      <span>Halaman {pageNum} dari {totalPages}</span>
                     </div>
                   </div>
-                </div> {/* Closes space-y-4 */}
-                
-                {/* Page 3 Footer */}
-                <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-[8.5px] font-mono text-slate-400 mt-auto">
-                  <span>{reportTitle} - Periode {formatMonthLabel(selectedMonth)}</span>
-                  <span>Halaman 3 dari 3</span>
-                </div>
-              </div> {/* Closes data-pdf-page="3" */}
+                );
+              })}
 
             </div> {/* Closes print-section */}
             

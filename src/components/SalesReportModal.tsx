@@ -1,10 +1,12 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DailySales, MarketingEvent } from '../types';
 import { formatRupiah, formatNumberIndo, formatDateIndo, formatRupiahCompact } from '../utils';
 import { 
   X, Printer, Calendar, FileText, ArrowUpRight, TrendingUp, 
-  Trophy, Target, CheckCircle2, ChevronRight, BarChart3, ArrowDown, ArrowUp
+  Trophy, Target, CheckCircle2, ChevronRight, BarChart3, ArrowDown, ArrowUp, Download
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
 interface SalesReportModalProps {
   isOpen: boolean;
@@ -256,6 +258,8 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
 
   // Check if we are in an iframe
   const [isInIframe, setIsInIframe] = useState<boolean>(false);
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
 
   useEffect(() => {
     try {
@@ -277,6 +281,70 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     setTimeout(() => {
       document.title = originalTitle;
     }, 1000);
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!reportRef.current) return;
+    setIsExporting(true);
+    
+    try {
+      const formattedMonth = formatMonthLabel(selectedMonth);
+      const fileName = `Laporan Penjualan (${formattedMonth}).pdf`;
+      const element = reportRef.current;
+      
+      // Temporarily remove transform scale for capturing
+      const originalStyle = element.style.transform;
+      element.style.transform = 'none';
+
+      const canvas = await html2canvas(element, {
+        scale: 2, // High resolution for beautiful text and charts
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: 794, // Standard A4 pixel width representation for crisp styling
+        onclone: (clonedDoc) => {
+          const clonedEl = clonedDoc.querySelector('[data-report-paper]') as HTMLElement;
+          if (clonedEl) {
+            clonedEl.style.transform = 'none';
+            clonedEl.style.margin = '0';
+            clonedEl.style.boxShadow = 'none';
+            clonedEl.style.border = 'none';
+          }
+        }
+      });
+
+      element.style.transform = originalStyle;
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Page 1
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      // Multi-page handling
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(fileName);
+    } catch (error) {
+      console.error('Failed to generate high-fidelity PDF download:', error);
+      // Fallback to standard print/save
+      handlePrint();
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -384,12 +452,30 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             </div>
 
             <button
+              onClick={handleDownloadPDF}
+              disabled={currentMonthData.length === 0 || isExporting}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold uppercase tracking-widest px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-emerald-100 disabled:opacity-45"
+            >
+              {isExporting ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Mengunduh...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Unduh PDF
+                </>
+              )}
+            </button>
+
+            <button
               onClick={handlePrint}
-              disabled={currentMonthData.length === 0}
+              disabled={currentMonthData.length === 0 || isExporting}
               className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-extrabold uppercase tracking-widest px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45"
             >
               <Printer className="w-4 h-4" />
-              Cetak / Simpan PDF
+              Cetak via Browser
             </button>
 
             <button
@@ -425,10 +511,9 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             <div className="pt-4 border-t border-slate-100 space-y-3.5">
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Petunjuk Ekspor PDF</h4>
               <ul className="text-[10.5px] text-slate-500 font-semibold space-y-2 list-disc list-inside leading-relaxed">
-                <li>Klik tombol <strong className="text-indigo-600">Cetak / Simpan PDF</strong> untuk membuka menu cetak sistem browser.</li>
-                <li>Pada pilihan printer, pilih opsi <strong className="text-slate-800">"Save as PDF"</strong> atau <strong className="text-slate-800">"Simpan sebagai PDF"</strong>.</li>
-                <li>Gunakan setelan ukuran kertas <strong className="text-slate-800">A4</strong> dengan tata letak <strong className="text-slate-800">Portrait</strong>.</li>
-                <li>Aktifkan setelan <strong className="text-slate-800">"Background Graphics"</strong> agar warna tema &amp; grafik tertera sempurna di PDF hasil ekspor Anda.</li>
+                <li>Klik tombol <strong className="text-emerald-600">Unduh PDF</strong> untuk mengunduh berkas PDF secara instan ke perangkat Anda dengan nama file otomatis yang rapi.</li>
+                <li>Jika Anda ingin mencetak langsung menggunakan printer fisik, klik <strong className="text-indigo-600">Cetak via Browser</strong>.</li>
+                <li>Pada opsi pencetakan sistem, pilih setelan kertas <strong className="text-slate-800">A4</strong>, orientasi <strong className="text-slate-800">Portrait</strong>, dan aktifkan <strong className="text-slate-800">"Background Graphics"</strong>.</li>
               </ul>
             </div>
 
@@ -461,7 +546,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
 
           {/* Live Preview Area (Right Panel, 3/4) */}
           <div className="lg:col-span-3 p-6 overflow-y-auto max-h-[75vh] flex justify-center bg-white shadow-inner border-l border-slate-100">
-            <div className="bg-white w-[210mm] min-h-[297mm] p-10 shadow-2xl border border-slate-300 rounded-lg flex flex-col justify-between origin-top scale-[0.85] sm:scale-100 max-w-full">
+            <div ref={reportRef} data-report-paper="true" className="bg-white w-[210mm] min-h-[297mm] p-10 shadow-2xl border border-slate-300 rounded-lg flex flex-col justify-between origin-top scale-[0.85] sm:scale-100 max-w-full">
               
               {/* Actual Document to Print */}
               <div className="print-section text-slate-900 font-sans text-xs w-full">

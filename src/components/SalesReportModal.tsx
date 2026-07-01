@@ -408,6 +408,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
   const [isInIframe, setIsInIframe] = useState<boolean>(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportStep, setExportStep] = useState<string>('');
 
   useEffect(() => {
     try {
@@ -434,6 +435,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
   const handleDownloadPDF = async () => {
     if (!reportRef.current) return;
     setIsExporting(true);
+    setExportStep('Menyiapkan tata letak dokumen A4...');
     
     // Store original classes to avoid layout breakages
     const originalClassName = reportRef.current.className;
@@ -466,6 +468,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       
       for (let idx = 0; idx < pages.length; idx++) {
         const pageEl = pages[idx] as HTMLElement;
+        setExportStep(`Merender halaman ${idx + 1} dari ${pages.length}...`);
         
         const canvas = await html2canvas(pageEl, {
           scale: 2.2, // Extremely sharp resolution for crisp text & charts
@@ -536,6 +539,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
       }
 
+      setExportStep('Menyusun lembaran dan menyimpan PDF...');
       pdf.save(fileName);
     } catch (error) {
       console.error('Failed to generate high-fidelity PDF download:', error);
@@ -551,6 +555,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         reportRef.current.className = originalClassName;
       }
       setIsExporting(false);
+      setExportStep('');
     }
   };
 
@@ -754,9 +759,94 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             </div>
           </div>
 
-          {/* Live Preview Area (Right Panel, 3/4) */}
-          <div className="lg:col-span-3 p-6 overflow-y-auto max-h-[75vh] flex justify-center bg-white shadow-inner border-l border-slate-100">
-            <div ref={reportRef} className="flex flex-col gap-8 w-full max-w-[210mm] origin-top scale-[0.85] sm:scale-100 select-text">
+          {/* Direct Download UI Panel (Right Panel, 3/4) */}
+          <div className="lg:col-span-3 p-8 overflow-y-auto max-h-[75vh] bg-slate-50 flex flex-col items-center justify-center border-l border-slate-100 no-print">
+            <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200 shadow-xl shadow-slate-100/50 space-y-6 text-center relative overflow-hidden animate-in zoom-in-95 duration-250">
+              {/* Decorative background gradients */}
+              <div className="absolute -right-12 -top-12 w-32 h-32 rounded-full bg-indigo-50 blur-3xl opacity-70" />
+              <div className="absolute -left-12 -bottom-12 w-32 h-32 rounded-full bg-emerald-50 blur-3xl opacity-70" />
+
+              <div className="relative space-y-5">
+                {/* Visual Document Mockup Card */}
+                <div className="mx-auto w-32 h-44 bg-slate-50 border border-slate-200 rounded-2xl shadow-md relative p-4 flex flex-col justify-between overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600" />
+                  <div className="flex justify-between items-start pt-1">
+                    <FileText className="w-8 h-8 text-indigo-600" />
+                    <span className="text-[7.5px] font-black text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded uppercase tracking-wider">A4 PDF</span>
+                  </div>
+                  
+                  <div className="space-y-1.5 text-left">
+                    <div className="h-1.5 w-16 bg-slate-300 rounded" />
+                    <div className="h-1 w-20 bg-slate-200 rounded" />
+                    <div className="h-1 w-12 bg-slate-200 rounded" />
+                  </div>
+
+                  <div className="flex justify-between items-center border-t border-slate-100 pt-2">
+                    <span className="text-[8px] font-black font-mono text-slate-400 uppercase tracking-widest">HLM 1-{2 + chunkedMonthData.length}</span>
+                    <div className="w-4.5 h-4.5 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-base font-black text-slate-800 leading-snug">Laporan Bulanan Siap Diunduh</h3>
+                  <p className="text-xs text-slate-500 font-semibold leading-relaxed px-2">
+                    Dokumen laporan keuangan terformat otomatis dalam ukuran <strong className="text-slate-800 font-bold">A4 Potret</strong> secara presisi, tajam, dan siap cetak.
+                  </p>
+                </div>
+
+                {/* Metadata Badge Grid */}
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200/50 text-left">
+                  <div className="space-y-0.5 pl-1">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block tracking-wider">Periode Laporan</span>
+                    <span className="text-xs font-black text-slate-700 block truncate">{formatMonthLabel(selectedMonth)}</span>
+                  </div>
+                  <div className="space-y-0.5 pl-1 border-l border-slate-200">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block tracking-wider">Total Halaman</span>
+                    <span className="text-xs font-black text-slate-700 block">{2 + chunkedMonthData.length} Halaman (A4)</span>
+                  </div>
+                </div>
+
+                {/* Main Download Button and Loading Feedback */}
+                <div className="pt-2">
+                  {isExporting ? (
+                    <div className="space-y-3.5 animate-in fade-in-50 duration-200">
+                      <div className="bg-indigo-50/50 border border-indigo-100 p-4 rounded-2xl flex flex-col items-center justify-center gap-3">
+                        <div className="relative w-10 h-10 flex items-center justify-center">
+                          <div className="absolute inset-0 rounded-full border-4 border-slate-200" />
+                          <div className="absolute inset-0 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin" />
+                        </div>
+                        <div className="text-center space-y-1">
+                          <p className="text-xs font-extrabold text-indigo-600 animate-pulse">{exportStep || 'Sedang memproses halaman...'}</p>
+                          <p className="text-[10px] text-slate-400 font-bold">Harap tunggu, render resolusi tinggi untuk hasil cetak tajam</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleDownloadPDF}
+                      disabled={currentMonthData.length === 0}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-[10.5px] font-extrabold uppercase tracking-widest py-3.5 px-6 rounded-2xl flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-emerald-100 disabled:opacity-50"
+                    >
+                      <Download className="w-4.5 h-4.5" />
+                      <span>Unduh Laporan PDF (A4)</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Additional quality statement */}
+                <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-400 font-bold pt-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  <span>Dihasilkan dengan konversi vektor tajam 300 DPI</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Hidden Offscreen Container for rendering high-fidelity A4 pages in DOM */}
+          <div className="fixed -left-[9999px] -top-[9999px] w-[210mm] bg-white no-print" style={{ zIndex: -1000 }}>
+            <div ref={reportRef} className="flex flex-col gap-8 w-[210mm] min-w-[210mm] select-text">
               
               {/* Actual Document to Print */}
               <div className="print-section text-slate-900 font-sans text-xs w-full flex flex-col gap-8">
@@ -1194,10 +1284,10 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                 );
               })}
 
-            </div> {/* Closes print-section */}
+              </div> {/* Closes print-section */}
             
-          </div> {/* Closes reportRef */}
-        </div> {/* Closes lg:col-span-3 */}
+            </div> {/* Closes reportRef */}
+          </div>
 
         </div>
 

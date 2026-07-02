@@ -568,14 +568,44 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       });
 
       // Add MoM Growth
-      if (comp.growthVsPrior1 !== null) {
+      if (comp.growthVsPrior1 !== null && comp.txGrowthVsPrior1 !== null) {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-        doc.setTextColor(15, 23, 42);
-        doc.text('IV. PERTUMBUHAN BULANAN (MoM Growth)', 14, targetY + 25);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.text(`Pertumbuhan omzet dibandingkan bulan lalu: ${comp.growthVsPrior1.toFixed(1)}%`, 14, targetY + 30);
+        doc.setFontSize(11);
+        doc.setTextColor(79, 70, 229);
+        doc.text('IV. PERTUMBUHAN BULANAN (MoM GROWTH)', 14, targetY + 25);
+
+        const drawMoMBox = (x: number, y: number, w: number, h: number, title: string, growth: number, currentVal: number, priorVal: number, isSales: boolean) => {
+          const isSurplus = growth >= 0;
+          const bgColor = isSurplus ? [240, 253, 244] : [255, 241, 242]; // Emerald 50 vs Rose 50
+          const borderColor = isSurplus ? [187, 247, 208] : [254, 205, 211]; // Emerald 200 vs Rose 200
+          const textColor = isSurplus ? [6, 78, 59] : [159, 18, 57]; // Emerald 800 vs Rose 800
+          
+          doc.setFillColor(bgColor[0], bgColor[1], bgColor[2]);
+          doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+          doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+          
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text(title.toUpperCase(), x + 4, y + 6);
+          
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+          doc.text((isSurplus ? '+' : '') + growth.toFixed(2) + '%', x + 4, y + 12);
+          
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(71, 85, 105);
+          doc.text(`Bulan Ini: ${isSales ? formatRupiah(currentVal) : formatNumberIndo(currentVal) + ' Tx'}`, x + 4, y + 16);
+          doc.text(`Bulan Lalu: ${isSales ? formatRupiah(priorVal) : formatNumberIndo(priorVal) + ' Tx'}`, x + 4, y + 20);
+        };
+
+        const momY = targetY + 28;
+        const momW = 89;
+        const momH = 22;
+        drawMoMBox(14, momY, momW, momH, 'PERTUMBUHAN OMZET', comp.growthVsPrior1, comp.current.totalSales, comp.prior1.totalSales, true);
+        drawMoMBox(14 + momW + 4, momY, momW, momH, 'PERTUMBUHAN TRANSAKSI', comp.txGrowthVsPrior1, comp.current.totalTx, comp.prior1.totalTx, false);
       }
 
       // ==========================================

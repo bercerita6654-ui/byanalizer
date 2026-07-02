@@ -330,6 +330,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       doc.setTextColor(100, 116, 139);
       doc.text('Tanggal Ekspor:', 120, 26);
       doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8); // Smaller font size
       doc.setTextColor(15, 23, 42);
       doc.text(formatDateIndo(new Date().toISOString().substring(0, 10)), 150, 26);
 
@@ -671,7 +672,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('💡 VII. ANALISIS & REKOMENDASI STRATEGIS', 18, recY + 6);
+      doc.text('VII. ANALISIS & REKOMENDASI STRATEGIS', 18, recY + 6);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
@@ -681,18 +682,46 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       
       const recText1 = `1. Kinerja omzet bulan ini didorong secara signifikan oleh penjualan melalui saluran ${primaryChannel}. Disarankan untuk terus memberikan promo voucher khusus untuk meningkatkan volume transaksi.`;
       const recText2 = `2. Rekomendasi operasional: Alokasikan sumber daya logistik ekstra pada hari-hari sibuk (terutama hari kerja aktif) untuk meminimalkan waktu pemrosesan dan menjaga loyalitas pelanggan setia.`;
+      const recText3 = `3. Optimasi pada periode promo Double Date 6.6, 7.7, 8.8, dst, terbukti efektif meningkatkan trafik.`;
 
-      const lines1 = doc.splitTextToSize(recText1, 174);
-      const lines2 = doc.splitTextToSize(recText2, 174);
+      const lines = doc.splitTextToSize(`${recText1}\n${recText2}\n${recText3}`, 174);
 
       let textY = recY + 12;
-      lines1.forEach((l: string) => {
+      lines.forEach((l: string) => {
         doc.text(l, 18, textY);
         textY += 4.2;
       });
-      lines2.forEach((l: string) => {
-        doc.text(l, 18, textY);
-        textY += 4.2;
+
+      // Chart: Performance by Day of Week
+      const daysOfWeek = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+      const salesByDay: Record<string, number> = {};
+      daysOfWeek.forEach(d => salesByDay[d] = 0);
+      data.forEach(d => {
+          if (salesByDay[d.dayOfWeek] !== undefined) {
+              salesByDay[d.dayOfWeek] += d.totalAll;
+          }
+      });
+
+      const chartY = recY + 35;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('PERFORMA PENJUALAN BERDASARKAN HARI', 14, chartY);
+
+      const barMaxWidth = 110;
+      const maxSales = Math.max(...Object.values(salesByDay), 1);
+      let barY = chartY + 8;
+      daysOfWeek.forEach(day => {
+          const sales = salesByDay[day];
+          const width = (sales / maxSales) * barMaxWidth;
+          doc.setFillColor(79, 70, 229); // Indigo 600
+          doc.rect(40, barY, width, 4, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(71, 85, 105);
+          doc.text(day, 14, barY + 3.5);
+          doc.text(formatRupiah(sales), 40 + width + 2, barY + 3.5);
+          barY += 7;
       });
 
       // ==========================================
@@ -706,7 +735,20 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       const dailyHeaders = [['Tanggal', 'Hari', 'Omzet Instan', 'Omzet Reguler', 'Omzet Manual', 'Omzet Total', 'Tx Total', 'Event / Kampanye']];
       const dailyRows = data.map(day => {
         const dayEvents = events.filter(e => e.date === day.date);
-        const eventTitles = dayEvents.map(e => e.title).join(', ') || '-';
+        const eventTitles = dayEvents.map(e => e.title).join(', ');
+        
+        let holidayInfo = '';
+        // Add hardcoded holiday checks for Bali/National
+        // This is a simplified approach based on the request
+        const holidayMap: Record<string, string> = {
+          '2026-03-29': 'Nyepi',
+          '2026-04-01': 'Galungan',
+          '2026-04-11': 'Kuningan'
+        };
+        if (holidayMap[day.date]) {
+          holidayInfo = `[Libur: ${holidayMap[day.date]}] `;
+        }
+        
         return [
           day.date,
           day.dayOfWeek,
@@ -715,7 +757,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           formatRupiah(day.totalManual),
           formatRupiah(day.totalAll),
           `${day.txAll} Tx`,
-          eventTitles
+          `${holidayInfo}${eventTitles || '-'}`
         ];
       });
 

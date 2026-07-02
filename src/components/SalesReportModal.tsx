@@ -217,6 +217,15 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       const activeDays = filtered.length;
       const avgDailySales = activeDays > 0 ? totalSales / activeDays : 0;
       const aov = totalTx > 0 ? totalSales / totalTx : 0;
+      
+      let totalInstan = 0;
+      let totalReguler = 0;
+      let totalManual = 0;
+      filtered.forEach(day => {
+        totalInstan += day.totalInstan;
+        totalReguler += day.totalReguler;
+        totalManual += day.totalManual;
+      });
 
       return {
         key,
@@ -226,7 +235,8 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         activeDays,
         avgDailySales,
         aov,
-        hasData: filtered.length > 0
+        hasData: filtered.length > 0,
+        channelSplit: { instan: totalInstan, reguler: totalReguler, manual: totalManual }
       };
     };
 
@@ -316,33 +326,17 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(18);
       doc.setTextColor(15, 23, 42); // Slate 900
-      doc.text(reportTitle.toUpperCase(), 14, 20);
-
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(100, 116, 139); // Slate 500
-      doc.text('Periode Laporan:', 14, 26);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(15, 23, 42);
-      doc.text(monthLabel, 46, 26);
-
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(100, 116, 139);
-      doc.text('Tanggal Ekspor:', 120, 26);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8); // Smaller font size
-      doc.setTextColor(15, 23, 42);
-      doc.text(formatDateIndo(new Date().toISOString().substring(0, 10)), 150, 26);
+      doc.text(`LAPORAN PENJUALAN BULAN ${monthLabel.toUpperCase()}`, 14, 20);
 
       doc.setDrawColor(226, 232, 240); // Slate 200
       doc.setLineWidth(0.5);
-      doc.line(14, 30, 196, 30);
+      doc.line(14, 25, 196, 25);
 
       // Section 1: Ringkasan Eksekutif
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(79, 70, 229); // Indigo 600
-      doc.text('I. RINGKASAN EKSEKUTIF (EXECUTIVE SUMMARY)', 14, 37);
+      doc.text('I. RINGKASAN EKSEKUTIF (EXECUTIVE SUMMARY)', 14, 32);
 
       // Draw 6 KPI boxes helper
       const drawKPIBox = (x: number, y: number, w: number, h: number, title: string, value: string, subtext: string, valueColor = [15, 23, 42]) => {
@@ -676,9 +670,9 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       let channelH = 22;
 
       const splits = [
-        { label: 'Instan (Kurir Instan)', sales: summary.channelSplit.instan.sales, tx: summary.channelSplit.instan.tx, pct: summary.channelSplit.instan.pct, bg: [240, 253, 244], border: [187, 247, 208], text: [21, 128, 61] },
-        { label: 'Reguler (Ekspedisi)', sales: summary.channelSplit.reguler.sales, tx: summary.channelSplit.reguler.tx, pct: summary.channelSplit.reguler.pct, bg: [239, 246, 255], border: [191, 219, 254], text: [29, 78, 216] },
-        { label: 'Manual (Offline/Custom)', sales: summary.channelSplit.manual.sales, tx: summary.channelSplit.manual.tx, pct: summary.channelSplit.manual.pct, bg: [255, 251, 235], border: [253, 242, 175], text: [180, 83, 9] }
+        { label: 'Instan (Kurir Instan)', sales: summary.channelSplit.instan.sales, priorSales: comp.prior1.channelSplit.instan, tx: summary.channelSplit.instan.tx, pct: summary.channelSplit.instan.pct, bg: [240, 253, 244], border: [187, 247, 208], text: [21, 128, 61] },
+        { label: 'Reguler (Ekspedisi)', sales: summary.channelSplit.reguler.sales, priorSales: comp.prior1.channelSplit.reguler, tx: summary.channelSplit.reguler.tx, pct: summary.channelSplit.reguler.pct, bg: [239, 246, 255], border: [191, 219, 254], text: [29, 78, 216] },
+        { label: 'Manual (Offline/Custom)', sales: summary.channelSplit.manual.sales, priorSales: comp.prior1.channelSplit.manual, tx: summary.channelSplit.manual.tx, pct: summary.channelSplit.manual.pct, bg: [255, 251, 235], border: [253, 242, 175], text: [180, 83, 9] }
       ];
 
       splits.forEach((split, idx) => {
@@ -700,7 +694,8 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
         doc.setTextColor(100, 116, 139);
-        doc.text(`${split.tx} Transaksi (${split.pct.toFixed(1)}%)`, cx + 3, channelY + 18);
+        doc.text(`${split.tx} Tx (${split.pct.toFixed(1)}%)`, cx + 3, channelY + 16);
+        doc.text(`vs Bln Lalu: ${formatRupiah(split.priorSales)}`, cx + 3, channelY + 20);
       });
 
       // Section VII: Strategic Recommendations
@@ -713,7 +708,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('VII. ANALISIS & REKOMENDASI STRATEGIS', 18, recY + 6);
+      doc.text('VII. ANALISIS & REKOMENDASI (berdasarkan AI)', 18, recY + 6);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
@@ -736,10 +731,15 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       // Chart: Performance by Day of Week
       const daysOfWeek = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
       const salesByDay: Record<string, number> = {};
-      daysOfWeek.forEach(d => salesByDay[d] = 0);
+      const txByDay: Record<string, number> = {};
+      daysOfWeek.forEach(d => {
+          salesByDay[d] = 0;
+          txByDay[d] = 0;
+      });
       data.forEach(d => {
           if (salesByDay[d.dayOfWeek] !== undefined) {
               salesByDay[d.dayOfWeek] += d.totalAll;
+              txByDay[d.dayOfWeek] += d.txAll;
           }
       });
 
@@ -747,7 +747,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('PERFORMA PENJUALAN BERDASARKAN HARI', 14, chartY);
+      doc.text('TOTAL PERFORMA PENJUALAN BERDASARKAN HARI', 14, chartY);
 
       const barMaxWidth = 110;
       const maxSales = Math.max(...Object.values(salesByDay), 1);
@@ -763,6 +763,21 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           doc.text(day, 14, barY + 3.5);
           doc.text(formatRupiah(sales), 40 + width + 2, barY + 3.5);
           barY += 7;
+      });
+
+      // Add transaction ranking
+      const txStatsY = barY + 5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Peringkat Hari Berdasarkan Volume Transaksi:', 14, txStatsY);
+      
+      const sortedDays = Object.entries(txByDay).sort((a, b) => b[1] - a[1]);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+      sortedDays.forEach((dayTx, index) => {
+          doc.text(`${index + 1}. ${dayTx[0]}: ${formatNumberIndo(dayTx[1])} Tx`, 14, txStatsY + 5 + (index * 4));
       });
 
       // ==========================================

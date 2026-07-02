@@ -563,7 +563,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           doc.text(`TERCAPAI (${lvl.pct.toFixed(1)}%)`, tx + 4, targetY + 15);
         } else {
           doc.setTextColor(220, 38, 38); // Red 600 (Red)
-          doc.text(`BELUM TERCAPAI (${lvl.pct.toFixed(1)}%)`, tx + 4, targetY + 15);
+          doc.text(`TERCAPAI (${lvl.pct.toFixed(1)}%)`, tx + 4, targetY + 15);
         }
       });
 
@@ -743,7 +743,10 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         const holidayMap: Record<string, string> = {
           '2026-03-29': 'Nyepi',
           '2026-04-01': 'Galungan',
-          '2026-04-11': 'Kuningan'
+          '2026-04-11': 'Kuningan',
+          '2026-06-01': 'Hari Lahir Pancasila',
+          '2026-06-10': 'Galungan',
+          '2026-06-20': 'Kuningan'
         };
         if (holidayMap[day.date]) {
           holidayInfo = `[Libur: ${holidayMap[day.date]}] `;

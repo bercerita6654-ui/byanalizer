@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DailySales, MarketingEvent } from '../types';
 import { formatRupiah, formatNumberIndo, formatDateIndo } from '../utils';
-import { Download, CheckCircle2 } from 'lucide-react';
+import { Download, CheckCircle2, X, Calendar, FileText, Check } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -71,6 +71,16 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
   // Selected month state
   const [selectedMonth, setSelectedMonth] = useState<string>('');
 
+  // Selected months state for downloading
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
+
+  // Initialize selected months to all available months when open is triggered
+  useEffect(() => {
+    if (isOpen && availableMonths.length > 0) {
+      setSelectedMonths(availableMonths.map(m => m.yearMonth));
+    }
+  }, [isOpen, availableMonths]);
+
   // Set default selected month to latest month in dataset
   useEffect(() => {
     if (availableMonths.length > 0 && !selectedMonth) {
@@ -79,8 +89,6 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
   }, [availableMonths, selectedMonth]);
 
   const reportTitle = 'Laporan Evaluasi & Kinerja Penjualan Bulanan';
-  const preparedBy = 'Koordinator Toko / Operasional';
-  const approvedBy = 'Pemilik Toko (Owner)';
 
   // Selected Month Data
   const currentMonthData = useMemo(() => {
@@ -415,7 +423,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
       }
 
       priorRows.push([
-        `${comp.current.label} (Fokus)`,
+        comp.current.label,
         formatRupiah(comp.current.totalSales),
         formatNumberIndo(comp.current.totalTx) + ' Tx',
         formatRupiah(comp.current.avgDailySales),
@@ -428,6 +436,11 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         body: priorRows,
         startY: 103,
         theme: 'striped',
+        didParseCell: function(dataCell) {
+          if (dataCell.section === 'body' && dataCell.row.index === 2) {
+            dataCell.cell.styles.textColor = [29, 78, 216]; // Blue font
+          }
+        },
         headStyles: {
           fillColor: [79, 70, 229],
           textColor: [255, 255, 255],
@@ -545,10 +558,10 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7.5);
         if (lvl.achieved) {
-          doc.setTextColor(4, 120, 87); // Emerald 700
+          doc.setTextColor(4, 120, 87); // Emerald 700 (Green)
           doc.text(`TERCAPAI (${lvl.pct.toFixed(1)}%)`, tx + 4, targetY + 15);
         } else {
-          doc.setTextColor(100, 116, 139); // Slate 500
+          doc.setTextColor(220, 38, 38); // Red 600 (Red)
           doc.text(`BELUM TERCAPAI (${lvl.pct.toFixed(1)}%)`, tx + 4, targetY + 15);
         }
       });
@@ -682,49 +695,6 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         textY += 4.2;
       });
 
-      // Signatures
-      let sigY = recY + 30 + 10;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('LEMBAR PENGESAHAN LAPORAN:', 14, sigY);
-
-      let pX = 14;
-      let pY = sigY + 6;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text('DIPERSIAPKAN OLEH:', pX, pY);
-      
-      doc.setDrawColor(226, 232, 240);
-      doc.line(pX, pY + 18, pX + 60, pY + 18);
-      
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text(preparedBy, pX, pY + 23);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text('Koordinator Toko / Operasional', pX, pY + 27);
-
-      let aX = 120;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text('DISETUJUI OLEH:', aX, pY);
-      
-      doc.line(aX, pY + 18, aX + 60, pY + 18);
-      
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text(approvedBy, aX, pY + 23);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text('Pemilik Toko (Owner)', aX, pY + 27);
-
       // ==========================================
       // PAGE 3+: DETAILED DAILY SALES TRANSACTIONS LIST
       // ==========================================
@@ -754,6 +724,14 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         body: dailyRows,
         startY: 28,
         theme: 'striped',
+        didParseCell: function(dataCell) {
+          if (dataCell.section === 'body') {
+            const dayValue = dataCell.row.raw[1];
+            if (typeof dayValue === 'string' && (dayValue.toLowerCase() === 'minggu' || dayValue.toLowerCase() === 'sunday')) {
+              dataCell.cell.styles.textColor = [220, 38, 38]; // Red font for Sunday
+            }
+          }
+        },
         headStyles: {
           fillColor: [15, 23, 42], // Slate 900
           textColor: [255, 255, 255],
@@ -819,93 +797,234 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     }
   };
 
-  // Automate sequential PDF generation for all available months when open is triggered
-  useEffect(() => {
-    if (isOpen && availableMonths.length > 0) {
-      const runAutomatedExport = async () => {
-        setIsExporting(true);
-        // Sort chronologically ascending (oldest first, latest last)
-        const sorted = [...availableMonths].sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
-        
-        try {
-          for (let i = 0; i < sorted.length; i++) {
-            const currentMonthObj = sorted[i];
-            setActiveExportIndex(i);
-            setSelectedMonth(currentMonthObj.yearMonth);
-            
-            setExportStep(`Mempersiapkan data laporan ${currentMonthObj.label}...`);
-            // Wait 200ms for state to sync and update
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
-            // Execute the PDF generation for this specific month
-            await executeMonthPDFDownload(currentMonthObj.label);
-          }
-        } catch (error) {
-          console.error('Kesalahan ekspor laporan otomatis:', error);
-        } finally {
-          setIsExporting(false);
-          setActiveExportIndex(-1);
-          setExportStep('');
-          onClose(); // Automatically close the progress loader when done
-        }
-      };
+  // Start download sequentially for chosen months
+  const handleStartDownload = async () => {
+    if (selectedMonths.length === 0) return;
+    setIsExporting(true);
+    
+    // Sort selected months chronologically ascending (oldest first)
+    const sortedSelected = [...availableMonths]
+      .filter(m => selectedMonths.includes(m.yearMonth))
+      .sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
 
-      runAutomatedExport();
+    try {
+      for (let i = 0; i < sortedSelected.length; i++) {
+        const currentMonthObj = sortedSelected[i];
+        setActiveExportIndex(i);
+        setSelectedMonth(currentMonthObj.yearMonth);
+        
+        setExportStep(`Mempersiapkan data laporan ${currentMonthObj.label}...`);
+        // Wait 250ms for state and currentMonthSummary useMemo to update and settle
+        await new Promise(resolve => setTimeout(resolve, 250));
+        
+        // Execute the PDF generation for this specific month
+        await executeMonthPDFDownload(currentMonthObj.label);
+      }
+    } catch (error) {
+      console.error('Kesalahan ekspor laporan:', error);
+    } finally {
+      setIsExporting(false);
+      setActiveExportIndex(-1);
+      setExportStep('');
+      onClose(); // Automatically close when done
     }
-  }, [isOpen, availableMonths, onClose]);
+  };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-[100] select-none pointer-events-none flex flex-col items-end gap-3 font-sans">
-      {/* Sleek, Non-blocking Floating Progress Toast */}
-      <div className="pointer-events-auto max-w-sm w-[360px] bg-white border border-slate-200 rounded-2xl p-4 shadow-2xl space-y-3.5 relative overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
-        <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-indigo-50/50 blur-2xl opacity-70" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fade-in font-sans">
+      <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[85vh] relative animate-in zoom-in-95 duration-200">
         
-        <div className="flex items-start gap-3 relative">
-          <div className="p-2 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center shrink-0">
-            <span className="relative flex h-5 w-5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-5 w-5 bg-indigo-500 items-center justify-center">
-                <Download className="w-3 h-3 text-white" />
-              </span>
-            </span>
+        {/* Header */}
+        <div className="px-6 py-5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide leading-none">Unduh Laporan Kinerja Bulanan</h3>
+              <p className="text-[10px] text-slate-400 font-bold mt-1">Pilih periode bulan evaluasi untuk diekspor ke PDF</p>
+            </div>
           </div>
           
-          <div className="space-y-1 min-w-0 flex-1">
-            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Mengekspor Laporan PDF...</h4>
-            <p className="text-[10.5px] font-semibold text-slate-500 leading-normal">
-              Laporan bulanan sedang dikonversi ke ukuran <strong className="text-slate-800">A4 Potret</strong> secara otomatis.
-            </p>
-          </div>
+          {!isExporting && (
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-700 transition-all border border-slate-200/50 bg-white shadow-sm"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
-        {/* Progress bar and step info */}
-        <div className="space-y-2 bg-slate-50 border border-slate-100 p-3 rounded-xl relative z-10">
-          <div className="flex items-center justify-between text-[9px] font-black uppercase text-slate-400 tracking-wider">
-            <span>Progress Ekspor</span>
-            <span className="text-indigo-600 font-bold">
-              {activeExportIndex >= 0 ? `${activeExportIndex + 1} / ${availableMonths.length} Laporan` : 'Memulai...'}
-            </span>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-indigo-600 rounded-full transition-all duration-300"
-                style={{ width: `${availableMonths.length > 0 ? ((activeExportIndex + 1) / availableMonths.length) * 100 : 0}%` }}
-              />
+        {isExporting ? (
+          /* Progress State View */
+          <div className="p-8 flex flex-col items-center justify-center text-center space-y-6 flex-1 my-auto">
+            <div className="relative flex h-14 w-14 items-center justify-center">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-12 w-12 bg-indigo-600 items-center justify-center shadow-lg shadow-indigo-200">
+                <Download className="w-5 h-5 text-white animate-bounce" />
+              </span>
             </div>
-            <p className="text-[10px] font-bold text-slate-600 animate-pulse truncate leading-tight">
-              {exportStep || 'Mempersiapkan...'}
-            </p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-1.5 text-[9px] text-slate-400 font-bold justify-center pt-2 border-t border-slate-100">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-          <span>Vektor Tajam • Bebas Error Rendering • Instan</span>
-        </div>
+            <div className="space-y-2 max-w-xs">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Mengekspor Laporan PDF...</h4>
+              <p className="text-[10.5px] font-semibold text-slate-500 leading-normal">
+                Harap tunggu, laporan bulanan sedang dikonversi ke format PDF secara berurutan.
+              </p>
+            </div>
+
+            {/* Progress bar and step info */}
+            <div className="w-full max-w-sm bg-slate-50 border border-slate-200/60 p-4 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                <span>Progress Ekspor</span>
+                <span className="text-indigo-600 font-bold">
+                  {activeExportIndex >= 0 ? `${activeExportIndex + 1} / ${selectedMonths.length} Laporan` : 'Memulai...'}
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-indigo-600 rounded-full transition-all duration-300"
+                    style={{ width: `${selectedMonths.length > 0 ? ((activeExportIndex + 1) / selectedMonths.length) * 100 : 0}%` }}
+                  />
+                </div>
+                <p className="text-[10.5px] font-bold text-slate-600 animate-pulse truncate leading-tight">
+                  {exportStep || 'Mempersiapkan...'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold justify-center pt-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+              <span>Vektor Tajam • Bebas Error Rendering • Tanpa Tanda Tangan</span>
+            </div>
+          </div>
+        ) : (
+          /* Selection Form View */
+          <>
+            <div className="p-6 flex-1 overflow-y-auto space-y-4">
+              
+              {/* Quick info panel */}
+              <div className="bg-amber-50 border border-amber-200/40 p-4 rounded-2xl flex gap-3 text-[11px] font-semibold text-amber-800 leading-normal">
+                <div className="mt-0.5 shrink-0">
+                  <span className="inline-flex items-center justify-center w-5 h-5 bg-amber-100 text-amber-700 rounded-full font-bold">!</span>
+                </div>
+                <p>
+                  Sistem mendeteksi <strong className="text-amber-950">{availableMonths.length} bulan</strong> data penjualan. Pilih bulan yang ingin Anda unduh secara bersamaan. Laporan akan diunduh secara berurutan.
+                </p>
+              </div>
+
+              {/* Selection Actions (Select All, Clear) */}
+              <div className="flex items-center justify-between pb-1 text-[11px] font-bold">
+                <span className="text-slate-400 uppercase tracking-wider">Daftar Bulan Tersedia</span>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMonths(availableMonths.map(m => m.yearMonth))}
+                    className="text-indigo-600 hover:text-indigo-800 transition-colors uppercase tracking-wider"
+                  >
+                    Pilih Semua
+                  </button>
+                  <span className="text-slate-200">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMonths([])}
+                    className="text-rose-600 hover:text-rose-800 transition-colors uppercase tracking-wider"
+                  >
+                    Batalkan Pilihan
+                  </button>
+                </div>
+              </div>
+
+              {/* Month List */}
+              <div className="space-y-2 border border-slate-100 rounded-2xl p-2 max-h-[35vh] overflow-y-auto bg-slate-50/50">
+                {availableMonths.map(month => {
+                  const isChecked = selectedMonths.includes(month.yearMonth);
+                  
+                  // Target status indicator based on sales thresholds
+                  const isGold = month.totalSales >= 800000000;
+                  const isSilver = month.totalSales >= 700000000;
+                  const isBronze = month.totalSales >= 600000000;
+                  
+                  const targetLabel = isGold ? '🥇 Gold' : isSilver ? '🥈 Silver' : isBronze ? '🥉 Bronze' : '❌ No Level';
+                  const targetColor = isGold 
+                    ? 'bg-amber-50 text-amber-700 border-amber-200/60' 
+                    : isSilver 
+                    ? 'bg-slate-100 text-slate-700 border-slate-200/60' 
+                    : isBronze 
+                    ? 'bg-amber-100 text-amber-800 border-amber-200/60' 
+                    : 'bg-rose-50 text-rose-600 border-rose-100';
+
+                  return (
+                    <button
+                      key={month.yearMonth}
+                      type="button"
+                      onClick={() => {
+                        if (isChecked) {
+                          setSelectedMonths(prev => prev.filter(m => m !== month.yearMonth));
+                        } else {
+                          setSelectedMonths(prev => [...prev, month.yearMonth]);
+                        }
+                      }}
+                      className={`w-full flex items-center justify-between p-3.5 rounded-xl border transition-all text-left group ${
+                        isChecked 
+                          ? 'bg-white border-indigo-200 shadow-sm' 
+                          : 'bg-transparent border-transparent hover:bg-slate-100/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`p-1 rounded-md border transition-all ${
+                          isChecked 
+                            ? 'bg-indigo-600 border-indigo-600 text-white' 
+                            : 'bg-white border-slate-200 text-transparent group-hover:border-slate-300'
+                        }`}>
+                          <Check className="w-3.5 h-3.5 stroke-[3.5]" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-extrabold text-slate-800">{month.label}</p>
+                          <p className="text-[10px] font-bold text-slate-400 mt-0.5">{formatRupiah(month.totalSales)}</p>
+                        </div>
+                      </div>
+
+                      <span className={`text-[9px] font-extrabold uppercase px-2.5 py-1 rounded-lg border ${targetColor}`}>
+                        {targetLabel}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Footer buttons */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                Terpilih: <strong className="text-indigo-600 font-extrabold">{selectedMonths.length} Bulan</strong>
+              </span>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2.5 border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-700 transition-colors bg-white shadow-sm"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartDownload}
+                  disabled={selectedMonths.length === 0}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 hover:scale-[1.01]"
+                >
+                  <Download className="w-4 h-4 text-white" />
+                  Mulai Unduh
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

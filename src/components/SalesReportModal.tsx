@@ -567,6 +567,17 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         }
       });
 
+      // Add MoM Growth
+      if (comp.growthVsPrior1 !== null) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text('IV. PERTUMBUHAN BULANAN (MoM Growth)', 14, targetY + 25);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.text(`Pertumbuhan omzet dibandingkan bulan lalu: ${comp.growthVsPrior1.toFixed(1)}%`, 14, targetY + 30);
+      }
+
       // ==========================================
       // PAGE 2: WEEKLY BREAKDOWN & CHANNELS & RECOMMENDATIONS
       // ==========================================

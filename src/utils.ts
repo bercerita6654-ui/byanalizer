@@ -1,4 +1,4 @@
-import { DailySales, MarketingEvent } from './types';
+import { DailySales, MarketingEvent, ProductPerformance } from './types';
 
 // Helper to parse double-quoted CSV fields correctly
 export function parseCSVRow(rowStr: string): string[] {
@@ -31,6 +31,45 @@ export function parseCSVDate(dateStr: string): string | null {
   const month = parts[1].padStart(2, '0');
   const year = parts[2];
   
+  return `${year}-${month}-${day}`;
+}
+
+// Convert Indonesian textual dates like "28 Mei 26" to YYYY-MM-DD
+export function parseIndonesianDate(dateStr: string): string | null {
+  if (!dateStr) return null;
+  const cleanStr = dateStr.trim().replace(/\s+/g, ' ');
+  const parts = cleanStr.split(' ');
+  if (parts.length !== 3) {
+    // Check if it's in DD/MM/YYYY format or similar
+    const slashParts = cleanStr.split(/[-/]/);
+    if (slashParts.length === 3) {
+      const day = slashParts[0].padStart(2, '0');
+      const month = slashParts[1].padStart(2, '0');
+      let year = slashParts[2];
+      if (year.length === 2) year = '20' + year;
+      return `${year}-${month}-${day}`;
+    }
+    return null;
+  }
+
+  const [dayStr, monthStr, yearStr] = parts;
+  const day = dayStr.padStart(2, '0');
+  let year = yearStr;
+  if (year.length === 2) {
+    year = '20' + year;
+  }
+
+  const monthsMap: Record<string, string> = {
+    jan: '01', peb: '02', feb: '02', mar: '03', apr: '04', mei: '05', jun: '06',
+    jul: '07', ags: '08', aug: '08', sep: '09', okt: '10', oct: '10',
+    nov: '11', des: '12', dec: '12',
+    januari: '01', februari: '02', maret: '03', april: '04', juni: '06',
+    juli: '07', agustus: '08', september: '09', oktober: '10', november: '11', desember: '12'
+  };
+
+  const mLow = monthStr.toLowerCase();
+  const month = monthsMap[mLow] || '01';
+
   return `${year}-${month}-${day}`;
 }
 
@@ -262,4 +301,96 @@ export function generateSampleMarketingEvents(): MarketingEvent[] {
       budget: 6500000
     }
   ];
+}
+
+// Parse Product Performance CSV from transactional history
+export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
+  const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+  if (lines.length < 2) return [];
+
+  // Find where header row starts
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    const row = parseCSVRow(lines[i]);
+    if (row.some(col => col.toLowerCase().includes('tanggal') || col.toLowerCase().includes('nomer') || col.toLowerCase().includes('code'))) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) headerIdx = 0;
+
+  const headers = parseCSVRow(lines[headerIdx]);
+  const hasLeadingEmpty = headers[0] === '';
+
+  // Dynamically map column indices based on header names
+  // SKU/Code: Column 5 (index 4 in 1-based header starting with "")
+  let skuIdx = headers.findIndex(h => h.toLowerCase() === 'code' || h.toLowerCase() === 'sku');
+  // Kategori: Column 8 (index 7 in 1-based header starting with "")
+  let categoryIdx = headers.findIndex(h => h.toLowerCase() === 'kategory' || h.toLowerCase() === 'kategori' || h.toLowerCase() === 'category');
+  // Nama Produk: Column 7 (index 6 in 1-based header starting with "")
+  let nameIdx = headers.findIndex(h => h.toLowerCase() === 'nama barang' || h.toLowerCase() === 'nama produk' || h.toLowerCase() === 'product');
+  // Unit: Column 11 (index 10 in 1-based header starting with "")
+  let unitIdx = headers.findIndex(h => h.toLowerCase() === 'unit');
+  // Harga: Column 12 (index 11 in 1-based header starting with "")
+  let priceIdx = headers.findIndex(h => h.toLowerCase() === 'harga' || h.toLowerCase() === 'price');
+  // Merk: Column 9 (index 8 in 1-based header starting with "")
+  let brandIdx = headers.findIndex(h => h.toLowerCase() === 'merk' || h.toLowerCase() === 'brand');
+  // Tanggal: Column 2 (index 1 in 1-based header starting with "")
+  let dateIdx = headers.findIndex(h => h.toLowerCase() === 'tanggal' || h.toLowerCase() === 'date' || h.toLowerCase() === 'tgl');
+
+  const result: ProductPerformance[] = [];
+
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const row = parseCSVRow(lines[i]);
+    if (row.length < 5) continue;
+
+    // Shift indices if data row does not have a leading empty cell but the header does
+    let sIdx = skuIdx;
+    let cIdx = categoryIdx;
+    let nIdx = nameIdx;
+    let uIdx = unitIdx;
+    let pIdx = priceIdx;
+    let bIdx = brandIdx;
+    let dIdx = dateIdx;
+
+    if (hasLeadingEmpty && row.length === headers.length - 1) {
+      if (sIdx > 0) sIdx--;
+      if (cIdx > 0) cIdx--;
+      if (nIdx > 0) nIdx--;
+      if (uIdx > 0) uIdx--;
+      if (pIdx > 0) pIdx--;
+      if (bIdx > 0) bIdx--;
+      if (dIdx > 0) dIdx--;
+    }
+
+    // Extract values with safe fallbacks
+    const sku = (row[sIdx] || row[4] || '').trim();
+    if (!sku || sku.toLowerCase() === 'code' || sku.toLowerCase() === 'sku' || sku.toLowerCase() === 'barcode') continue;
+
+    const category = (row[cIdx] || row[7] || '').trim() || 'Uncategorized';
+    const name = (row[nIdx] || row[6] || '').trim() || 'Produk Tanpa Nama';
+    const unit = (row[uIdx] || row[10] || 'PCS').trim();
+    const price = parseNumber(row[pIdx] || row[11] || '0');
+    const rawDate = (row[dIdx] || row[1] || '').trim();
+    const parsedDate = parseIndonesianDate(rawDate) || '2026-01-01';
+    
+    let brand = (row[bIdx] || row[8] || '').trim();
+    if (!brand || brand === '#N/A' || brand.toLowerCase() === 'n/a' || brand === '') {
+      brand = 'No Brand';
+    }
+
+    result.push({
+      sku,
+      category,
+      name,
+      totalQty: 1, // Single transaction occurrence counts as 1 qty
+      unit,
+      totalSales: price, // Single transaction sales is its price (Harga)
+      brand,
+      date: parsedDate
+    });
+  }
+
+  return result;
 }

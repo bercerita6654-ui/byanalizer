@@ -11,10 +11,12 @@ import SalesTable from './components/SalesTable';
 import SalesPredictions from './components/SalesPredictions';
 import EventModal from './components/EventModal';
 import SalesReportModal from './components/SalesReportModal';
+import SalesProducts from './components/SalesProducts';
 import { 
   TrendingUp, Calendar, Table, Target, BarChart2, 
   RefreshCw, Link as LinkIcon, HelpCircle, CheckCircle2, 
-  Sparkles, FileSpreadsheet, PlusCircle, AlertCircle, FileText
+  Sparkles, FileSpreadsheet, PlusCircle, AlertCircle, FileText,
+  Package
 } from 'lucide-react';
 
 const DEFAULT_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=21254849&single=true&output=csv';
@@ -294,7 +296,7 @@ export default function App() {
       <div className="bg-slate-100 border-b border-slate-200/50 sticky top-[73px] z-30 px-6 py-2">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
-            {(['dashboard', 'calendar', 'table', 'predictions'] as const).map(tab => (
+            {(['dashboard', 'products', 'calendar', 'table', 'predictions'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -308,6 +310,12 @@ export default function App() {
                   <>
                     <TrendingUp className="w-4 h-4 text-indigo-500" />
                     Ringkasan Analitik
+                  </>
+                )}
+                {tab === 'products' && (
+                  <>
+                    <Package className="w-4 h-4 text-indigo-500" />
+                    Analisa Produk
                   </>
                 )}
                 {tab === 'calendar' && (
@@ -397,7 +405,7 @@ export default function App() {
             </div>
 
             {/* Date Range Filter Panel */}
-            {activeTab !== 'calendar' && (
+            {activeTab !== 'calendar' && activeTab !== 'products' && (
               <div id="date-range-filter-container" className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   
@@ -515,6 +523,11 @@ export default function App() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* TAB: Product Performance Analysis */}
+            {activeTab === 'products' && (
+              <SalesProducts />
             )}
 
             {/* TAB: Dashboard Summary */}

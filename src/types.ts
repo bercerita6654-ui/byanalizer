@@ -26,7 +26,18 @@ export interface SalesTarget {
 }
 
 export type ChartTab = 'trend' | 'channel' | 'comparison' | 'aov';
-export type ViewTab = 'dashboard' | 'calendar' | 'table' | 'predictions';
+export type ViewTab = 'dashboard' | 'products' | 'calendar' | 'table' | 'predictions';
+
+export interface ProductPerformance {
+  sku: string;
+  category: string;
+  name: string;
+  totalQty: number;
+  unit: string;
+  totalSales: number;
+  brand: string;
+  date?: string; // Optional raw transaction date (YYYY-MM-DD)
+}
 
 export const EVENT_TYPES = [
   { id: 'promo', name: 'Promo / Diskon', color: 'bg-rose-500', textClass: 'text-rose-600', bgClass: 'bg-rose-50 border-rose-100' },

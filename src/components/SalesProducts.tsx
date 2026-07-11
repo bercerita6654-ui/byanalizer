@@ -1154,10 +1154,10 @@ export default function SalesProducts() {
                 <BarChart2 className="w-5 h-5 text-indigo-500" />
                 <div>
                   <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Visualisasi Top 10 Produk Terlaris (Omzet)</h3>
-                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">Grafik perbandingan 10 produk dengan akumulasi omzet penjualan tertinggi</p>
+                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">Grafik perbandingan 10 produk terlaris. Klik pada batang grafik untuk melihat rincian tren harian dan performa produk.</p>
                 </div>
               </div>
-              <span className="text-[9px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2.5 py-1 rounded-full uppercase tracking-wider font-black">Top 10 Omzet</span>
+              <span className="text-[9px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2.5 py-1 rounded-full uppercase tracking-wider font-black">Top 10 Omzet (Klik Bar)</span>
             </div>
 
             {top10ChartData.length > 0 ? (
@@ -1196,11 +1196,13 @@ export default function SalesProducts() {
                       fill="url(#productBarGrad)"
                       radius={[0, 8, 8, 0]}
                       barSize={18}
+                      cursor="pointer"
                     >
                       {top10ChartData.map((entry, index) => (
                         <Cell 
                           key={`cell-${index}`} 
                           fill={index === 0 ? 'url(#productBarGrad)' : index === 1 ? '#6366f1' : index === 2 ? '#818cf8' : '#c7d2fe'} 
+                          onClick={() => setSelectedTrendProductSku(entry.sku)}
                         />
                       ))}
                     </Bar>

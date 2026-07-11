@@ -63,6 +63,38 @@ function formatDateIndo(dateStr: string): string {
   return `${day} ${month} ${year}`;
 }
 
+const TrendMiniBarChart = ({ data, dates }: { data: number[], dates: string[] }) => {
+  const maxVal = Math.max(...data, 0);
+  return (
+    <div className="flex items-end gap-1 h-7 w-20 justify-between px-1" title="Tren volume penjualan (Qty) 7 hari terakhir">
+      {data.map((val, idx) => {
+        const heightPct = maxVal > 0 ? (val / maxVal) * 80 : 0;
+        const formattedDate = dates[idx] ? formatDateIndo(dates[idx]) : '';
+        return (
+          <div 
+            key={idx} 
+            className="group/bar relative flex-1 flex items-end h-full cursor-help"
+          >
+            <div 
+              className={`w-full rounded-[1.5px] transition-all duration-200 ${
+                val > 0 
+                  ? 'bg-indigo-500 hover:bg-indigo-600 shadow-[0_1px_2px_rgba(99,102,241,0.2)]' 
+                  : 'bg-slate-100 hover:bg-slate-200'
+              }`}
+              style={{ height: val > 0 ? `${Math.max(15, heightPct)}%` : '10%' }}
+            />
+            {/* Tooltip on top of the bar */}
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover/bar:block bg-slate-900 text-white text-[9px] px-2 py-1 rounded-lg shadow-xl whitespace-nowrap z-50 font-mono pointer-events-none border border-slate-800">
+              <span className="font-sans block text-slate-400 text-[8px] leading-none mb-0.5">{formattedDate}</span>
+              <span className="font-extrabold text-indigo-400">{val}</span> <span className="text-slate-300">pcs</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export default function SalesProducts() {
   const [products, setProducts] = useState<ProductPerformance[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -142,6 +174,33 @@ export default function SalesProducts() {
     });
     return Array.from(monthsSet).sort((a, b) => b.localeCompare(a)); // Sort descending (latest first)
   }, [products]);
+
+  // Pre-calculate 7-day sales trend (Qty) for all products
+  const productTrendMap = useMemo(() => {
+    if (products.length === 0) return { last7Days: [], trends: {} };
+
+    // Get the latest 7 unique days from availableDays
+    const last7Days = [...availableDays.slice(0, 7)].reverse();
+    const K = last7Days.length;
+
+    const trends: Record<string, number[]> = {};
+
+    products.forEach(p => {
+      if (!p.sku || !p.date) return;
+      const dayIdx = last7Days.indexOf(p.date);
+      if (dayIdx !== -1) {
+        if (!trends[p.sku]) {
+          trends[p.sku] = Array(K).fill(0);
+        }
+        trends[p.sku][dayIdx] += p.totalQty;
+      }
+    });
+
+    return {
+      last7Days,
+      trends
+    };
+  }, [products, availableDays]);
 
   // Dynamic aggregation based on date period filters
   const aggregatedProducts = useMemo(() => {
@@ -1418,6 +1477,7 @@ export default function SalesProducts() {
                     <th className="py-3 px-4">Nama Produk</th>
                     <th className="py-3 px-4 w-28">Merk / Brand</th>
                     <th className="py-3 px-4 w-36">Kategori</th>
+                    <th className="py-3 px-4 text-center w-28">Tren 7 Hari</th>
                     <th className="py-3 px-4 text-right w-24">Qty Terjual</th>
                     <th className="py-3 px-4 text-center w-16">Unit</th>
                     <th className="py-3 px-4 text-right w-36">Total Omzet</th>
@@ -1446,8 +1506,8 @@ export default function SalesProducts() {
                           <td className="py-3.5 px-4">
                             <span className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-lg border ${
                               p.brand === 'No Brand' 
-                                ? 'bg-slate-50 text-slate-400 border-slate-100' 
-                                : 'bg-indigo-50 text-indigo-700 border-indigo-100/40'
+                                  ? 'bg-slate-50 text-slate-400 border-slate-100' 
+                                  : 'bg-indigo-50 text-indigo-700 border-indigo-100/40'
                             }`}>
                               {p.brand}
                             </span>
@@ -1456,6 +1516,14 @@ export default function SalesProducts() {
                             <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 bg-slate-50 border border-slate-100 rounded-lg text-slate-600">
                               {p.category}
                             </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex justify-center items-center">
+                              <TrendMiniBarChart 
+                                data={productTrendMap.trends[p.sku] || Array(productTrendMap.last7Days.length).fill(0)} 
+                                dates={productTrendMap.last7Days} 
+                              />
+                            </div>
                           </td>
                           <td className="py-3.5 px-4 text-right font-black text-slate-700">
                             {formatNumberIndo(p.totalQty)}
@@ -1474,7 +1542,7 @@ export default function SalesProducts() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-400 font-bold">
+                      <td colSpan={10} className="py-12 text-center text-slate-400 font-bold">
                         Tidak ada produk yang cocok dengan pencarian / filter Anda.
                       </td>
                     </tr>

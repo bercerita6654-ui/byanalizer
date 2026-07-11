@@ -5,7 +5,7 @@ import {
   Package, Search, Filter, ArrowUpDown, Tag, Compass, 
   TrendingUp, BarChart2, DollarSign, Flame, FolderOpen, 
   RefreshCw, AlertCircle, Award, Check, SlidersHorizontal,
-  ChevronLeft, ChevronRight, Download, X
+  ChevronLeft, ChevronRight, Download, X, Sparkles, TrendingDown, Zap
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
@@ -106,6 +106,7 @@ export default function SalesProducts() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(10);
   const [selectedTrendProductSku, setSelectedTrendProductSku] = useState<string | null>(null);
+  const [selectedCategoryDetail, setSelectedCategoryDetail] = useState<string | null>(null);
 
   // Time-based filtering states (column 2 based daily/weekly/monthly filtering)
   const [timeFilterType, setTimeFilterType] = useState<'all' | 'daily' | 'weekly' | 'monthly'>('monthly');
@@ -530,6 +531,108 @@ export default function SalesProducts() {
 
     return result;
   }, [aggregatedProducts, searchQuery, selectedCategory, selectedBrand, sortBy]);
+
+  // Selected category 7-day trend chart data for popup detailed view
+  const selectedCategoryChartData = useMemo(() => {
+    if (!selectedCategoryDetail) return [];
+    
+    const last7Days = productTrendMap.last7Days;
+    const K = last7Days.length;
+    const qtyTrend = Array(K).fill(0);
+    const salesTrend = Array(K).fill(0);
+
+    products.forEach(p => {
+      if (p.category !== selectedCategoryDetail) return;
+      if (!p.date) return;
+      const dayIdx = last7Days.indexOf(p.date);
+      if (dayIdx !== -1) {
+        qtyTrend[dayIdx] += p.totalQty;
+        salesTrend[dayIdx] += p.totalSales;
+      }
+    });
+
+    return last7Days.map((date, idx) => ({
+      date,
+      formattedDate: formatDateIndo(date),
+      qty: qtyTrend[idx],
+      sales: salesTrend[idx]
+    }));
+  }, [selectedCategoryDetail, products, productTrendMap]);
+
+  // Products belonging to the selected category, aggregated and sorted by sales
+  const selectedCategoryProducts = useMemo(() => {
+    if (!selectedCategoryDetail) return [];
+    return filteredAndSortedProducts
+      .filter(p => p.category === selectedCategoryDetail)
+      .sort((a, b) => b.totalSales - a.totalSales);
+  }, [selectedCategoryDetail, filteredAndSortedProducts]);
+
+  // AI Growth and Trend Insight Engine
+  const aiGrowthInsights = useMemo(() => {
+    if (filteredAndSortedProducts.length === 0) return null;
+
+    const last7Days = productTrendMap.last7Days;
+    const K = last7Days.length;
+
+    const productsWithGrowth = filteredAndSortedProducts.map(p => {
+      let growthQty = 0;
+      let trendSalesGrowth = 0;
+      let startQty = 0;
+      let endQty = 0;
+
+      const trend = productTrendMap.trends[p.sku];
+      if (trend && K >= 2) {
+        const half = Math.floor(K / 2);
+        const firstHalfQty = trend.qty.slice(0, half).reduce((a, b) => a + b, 0);
+        const secondHalfQty = trend.qty.slice(half).reduce((a, b) => a + b, 0);
+        
+        const firstHalfSales = trend.sales.slice(0, half).reduce((a, b) => a + b, 0);
+        const secondHalfSales = trend.sales.slice(half).reduce((a, b) => a + b, 0);
+
+        growthQty = secondHalfQty - firstHalfQty;
+        trendSalesGrowth = secondHalfSales - firstHalfSales;
+        startQty = firstHalfQty;
+        endQty = secondHalfQty;
+      } else {
+        growthQty = p.totalQty * 0.1;
+        trendSalesGrowth = p.totalSales * 0.1;
+      }
+
+      const pctGrowth = startQty > 0 ? (growthQty / startQty) * 100 : endQty > 0 ? 100 : 0;
+
+      return {
+        ...p,
+        growthQty,
+        trendSalesGrowth,
+        pctGrowth,
+        startQty,
+        endQty
+      };
+    });
+
+    // 1. To Promote Candidates
+    const promoteCandidates = [...productsWithGrowth]
+      .filter(p => p.growthQty > 0 && p.endQty > 0)
+      .sort((a, b) => b.growthQty - a.growthQty || b.endQty - a.endQty);
+
+    const finalPromote = promoteCandidates.length > 0 
+      ? promoteCandidates.slice(0, 2) 
+      : [...productsWithGrowth].sort((a, b) => b.totalQty - a.totalQty).slice(0, 2);
+
+    // 2. To Reduce Stock Candidates
+    const reduceCandidates = [...productsWithGrowth]
+      .filter(p => p.growthQty < 0 || (p.totalQty > 0 && p.endQty === 0))
+      .sort((a, b) => a.growthQty - b.growthQty || a.endQty - b.endQty);
+
+    const finalReduce = reduceCandidates.length > 0 
+      ? reduceCandidates.slice(0, 2) 
+      : [...productsWithGrowth].sort((a, b) => b.totalQty - a.totalQty).slice(0, 2);
+
+    return {
+      toPromote: finalPromote.filter(p => p.totalQty > 0),
+      toReduce: finalReduce.filter(p => p.totalQty > 0)
+    };
+  }, [filteredAndSortedProducts, productTrendMap]);
 
   // Pagination helper
   const paginatedProducts = useMemo(() => {
@@ -1233,18 +1336,23 @@ export default function SalesProducts() {
                 {stats.categorySummary.map((cat, idx) => {
                   const pct = stats.totalRevenue > 0 ? (cat.revenue / stats.totalRevenue) * 100 : 0;
                   return (
-                    <div key={cat.name} className="space-y-1.5">
+                    <div 
+                      key={cat.name} 
+                      className="space-y-1.5 cursor-pointer hover:bg-slate-50 p-2 -mx-2 rounded-2xl transition-all border border-transparent hover:border-slate-100"
+                      onClick={() => setSelectedCategoryDetail(cat.name)}
+                      title={`Klik untuk melihat detail rincian & tren kategori ${cat.name}`}
+                    >
                       <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                         <div className="flex items-center gap-2 truncate">
-                          <span className="w-4 h-4 flex items-center justify-center text-[10px] font-extrabold bg-slate-100 text-slate-500 rounded-md shrink-0">
+                          <span className="w-4 h-4 flex items-center justify-center text-[10px] font-extrabold bg-indigo-50 text-indigo-600 rounded-md shrink-0 border border-indigo-100/60">
                             {idx + 1}
                           </span>
-                          <span className="truncate">{cat.name}</span>
+                          <span className="truncate text-slate-800 font-extrabold">{cat.name}</span>
                         </div>
-                        <div className="flex items-center gap-3 shrink-0 text-right">
-                          <span className="text-slate-400 text-[11px]">{formatNumberIndo(cat.qty)} pcs</span>
-                          <span className="text-indigo-600">{formatRupiah(cat.revenue)}</span>
-                          <span className="text-[10px] text-slate-400 font-black min-w-[36px]">{pct.toFixed(1)}%</span>
+                        <div className="flex items-center gap-3 shrink-0 text-right font-mono">
+                          <span className="text-slate-400 text-[10px]">{formatNumberIndo(cat.qty)} pcs</span>
+                          <span className="text-indigo-600 font-black">{formatRupiah(cat.revenue)}</span>
+                          <span className="text-[10px] text-indigo-500 font-black min-w-[36px] bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100/30">{pct.toFixed(1)}%</span>
                         </div>
                       </div>
                       <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -1482,6 +1590,121 @@ export default function SalesProducts() {
               </div>
             </div>
           </div>
+
+          {/* AI INSIGHT CARD */}
+          {aiGrowthInsights && (aiGrowthInsights.toPromote.length > 0 || aiGrowthInsights.toReduce.length > 0) && (
+            <div className="bg-gradient-to-r from-indigo-50/80 via-purple-50/50 to-indigo-50/30 border border-indigo-100 rounded-3xl p-5 md:p-6 shadow-sm space-y-4 no-print animate-fade-in">
+              <div className="flex items-center justify-between border-b border-indigo-100/50 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 bg-indigo-600 rounded-lg text-white">
+                    <Sparkles className="w-4 h-4 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase text-indigo-950 tracking-wider flex items-center gap-1.5">
+                      Saran Pintar Penjualan <span className="text-[9px] bg-indigo-600 text-white font-extrabold px-1.5 py-0.5 rounded uppercase tracking-widest font-sans">AI Insight</span>
+                    </h4>
+                    <p className="text-[10px] text-slate-500 font-bold mt-0.5">Analisis pertumbuhan volume penjualan 7 hari terakhir untuk optimasi stok & promosi</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* 1. REKOMENDASI PROMOSI */}
+                {aiGrowthInsights.toPromote.length > 0 && (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2 text-emerald-700 font-extrabold text-xs">
+                      <TrendingUp className="w-4 h-4 text-emerald-500" />
+                      <span>REKOMENDASI PROMOSI (TREN NAIK)</span>
+                    </div>
+                    <div className="space-y-2">
+                      {aiGrowthInsights.toPromote.map((prod, idx) => {
+                        const growthLabel = prod.growthQty > 0 ? `+${prod.growthQty}` : prod.growthQty;
+                        const pctLabel = prod.pctGrowth > 0 ? `(+${prod.pctGrowth.toFixed(0)}%)` : '';
+                        return (
+                          <div key={prod.sku} className="bg-white/85 border border-slate-200/60 p-3 rounded-2xl shadow-sm flex items-start gap-3 hover:border-indigo-200 transition-all">
+                            <div className="p-2 bg-emerald-50 border border-emerald-100/60 text-emerald-600 rounded-xl font-black text-xs font-mono shrink-0">
+                              #{idx + 1}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] bg-slate-100 text-slate-500 font-mono px-1.5 py-0.5 rounded border border-slate-200/40">
+                                  {prod.sku}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-400">
+                                  {prod.brand}
+                                </span>
+                              </div>
+                              <h5 className="text-xs font-black text-slate-800 mt-1 truncate">
+                                {prod.name}
+                              </h5>
+                              <p className="text-[10px] text-slate-500 font-bold mt-1.5 flex flex-wrap items-center gap-x-2">
+                                <span>Total Terjual: <strong className="text-slate-700">{formatNumberIndo(prod.totalQty)} {prod.unit}</strong></span>
+                                <span className="text-slate-300">•</span>
+                                <span className="text-emerald-600 font-black">
+                                  Tren: {growthLabel} {prod.unit} {pctLabel}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-indigo-950 bg-indigo-50/50 border border-indigo-100/30 p-2.5 rounded-xl font-bold leading-relaxed flex items-start gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                      <span><strong>Saran Tindakan:</strong> Produk di atas memiliki pertumbuhan volume transaksi yang kuat. Tingkatkan anggaran iklan, buat penawaran bundle eksklusif, atau letakkan produk ini di halaman depan / media sosial untuk mendongkrak omzet lebih lanjut.</span>
+                    </p>
+                  </div>
+                )}
+
+                {/* 2. REKOMENDASI EVALUASI STOK */}
+                {aiGrowthInsights.toReduce.length > 0 && (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2 text-rose-700 font-extrabold text-xs">
+                      <TrendingDown className="w-4 h-4 text-rose-500" />
+                      <span>REKOMENDASI EVALUASI STOK (TREN TURUN)</span>
+                    </div>
+                    <div className="space-y-2">
+                      {aiGrowthInsights.toReduce.map((prod, idx) => {
+                        const growthLabel = prod.growthQty;
+                        const pctLabel = prod.pctGrowth !== 0 ? `(${prod.pctGrowth.toFixed(0)}%)` : '';
+                        return (
+                          <div key={prod.sku} className="bg-white/85 border border-slate-200/60 p-3 rounded-2xl shadow-sm flex items-start gap-3 hover:border-rose-200 transition-all">
+                            <div className="p-2 bg-rose-50 border border-rose-100/60 text-rose-600 rounded-xl font-black text-xs font-mono shrink-0">
+                              #{idx + 1}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] bg-slate-100 text-slate-500 font-mono px-1.5 py-0.5 rounded border border-slate-200/40">
+                                  {prod.sku}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-400">
+                                  {prod.brand}
+                                </span>
+                              </div>
+                              <h5 className="text-xs font-black text-slate-800 mt-1 truncate">
+                                {prod.name}
+                              </h5>
+                              <p className="text-[10px] text-slate-500 font-bold mt-1.5 flex flex-wrap items-center gap-x-2">
+                                <span>Total Terjual: <strong className="text-slate-700">{formatNumberIndo(prod.totalQty)} {prod.unit}</strong></span>
+                                <span className="text-slate-300">•</span>
+                                <span className="text-rose-600 font-black">
+                                  Tren: {growthLabel} {prod.unit} {pctLabel}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-rose-950 bg-rose-50/30 border border-rose-100/30 p-2.5 rounded-xl font-bold leading-relaxed flex items-start gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                      <span><strong>Saran Tindakan:</strong> Penjualan produk ini mengalami penurunan atau stagnasi dalam beberapa hari terakhir. Pertimbangkan untuk mengurangi kuantitas restok berikutnya, berikan promosi cuci gudang (clearance sale), atau bundle sebagai bonus produk terlaris.</span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Product Data Table Card */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1835,6 +2058,210 @@ export default function SalesProducts() {
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
               <button
                 onClick={() => setSelectedTrendProductSku(null)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-900 rounded-xl text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm hover:shadow"
+              >
+                Tutup Detail
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DETAILED CATEGORY POPUP MODAL */}
+      {selectedCategoryDetail && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in no-print"
+          onClick={() => setSelectedCategoryDetail(null)}
+        >
+          <div 
+            className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-start gap-3.5">
+                <div className="p-3 bg-indigo-50 border border-indigo-100/60 text-indigo-600 rounded-2xl shrink-0">
+                  <FolderOpen className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-800 leading-tight">
+                    Kategori: {selectedCategoryDetail}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold mt-1">
+                    Rincian data performa penjualan dan kontribusi produk dalam kategori ini
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedCategoryDetail(null)}
+                className="p-2 hover:bg-slate-200/60 rounded-xl transition-all text-slate-400 hover:text-slate-800 cursor-pointer border border-transparent hover:border-slate-200/40"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+              
+              {/* Summary Stats Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-indigo-50/40 border border-indigo-100 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-indigo-500 tracking-wider">Total Terjual (Periode)</span>
+                  <p className="text-lg font-black text-indigo-950 mt-1 font-mono">
+                    {formatNumberIndo(selectedCategoryProducts.reduce((sum, p) => sum + p.totalQty, 0))} <span className="text-xs font-bold text-indigo-500">pcs</span>
+                  </p>
+                </div>
+                <div className="bg-emerald-50/40 border border-emerald-100 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider">Total Omzet (Periode)</span>
+                  <p className="text-lg font-black text-emerald-950 mt-1 font-mono">
+                    {formatRupiah(selectedCategoryProducts.reduce((sum, p) => sum + p.totalSales, 0))}
+                  </p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200/60 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Jumlah Produk Aktif</span>
+                  <p className="text-lg font-black text-slate-800 mt-1 font-mono">
+                    {selectedCategoryProducts.length} <span className="text-xs font-bold text-slate-500">Item</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Chart Visualizer */}
+              <div className="bg-slate-50/60 rounded-2xl p-4 border border-slate-100">
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className="text-[11px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-indigo-500" />
+                    Grafik Tren Volume & Omzet Kategori (7 Hari Terakhir)
+                  </h4>
+                  <span className="text-[9px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                    Kombinasi Kategori
+                  </span>
+                </div>
+                
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={selectedCategoryChartData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis 
+                        dataKey="formattedDate" 
+                        tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'bold' }} 
+                        axisLine={false} 
+                        tickLine={false} 
+                      />
+                      <YAxis 
+                        yAxisId="left" 
+                        tick={{ fontSize: 9, fill: '#6366f1', fontWeight: 'bold' }} 
+                        axisLine={false} 
+                        tickLine={false}
+                        label={{ 
+                          value: 'Volume (pcs)', 
+                          angle: -90, 
+                          position: 'insideLeft', 
+                          style: { fontSize: 9, fill: '#6366f1', fontWeight: 'bold', textAnchor: 'middle' },
+                          offset: 0
+                        }} 
+                      />
+                      <YAxis 
+                        yAxisId="right" 
+                        orientation="right" 
+                        tick={{ fontSize: 9, fill: '#10b981', fontWeight: 'bold' }} 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tickFormatter={(v) => formatRupiahCompact(v)}
+                        label={{ 
+                          value: 'Omzet (IDR)', 
+                          angle: 90, 
+                          position: 'insideRight', 
+                          style: { fontSize: 9, fill: '#10b981', fontWeight: 'bold', textAnchor: 'middle' },
+                          offset: 10
+                        }} 
+                      />
+                      <Tooltip 
+                        formatter={(value, name) => {
+                          if (name === 'sales') return [formatRupiah(value as number), 'Omzet'];
+                          return [`${value} pcs`, 'Volume'];
+                        }}
+                        contentStyle={{ background: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '10px' }}
+                      />
+                      <Legend 
+                        verticalAlign="top" 
+                        height={36} 
+                        iconType="circle" 
+                        wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} 
+                      />
+                      <Bar yAxisId="left" dataKey="qty" name="Volume Terjual" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                      <Bar yAxisId="right" dataKey="sales" name="Omzet Penjualan" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Products List Breakdown */}
+              <div className="space-y-3">
+                <h4 className="text-[11px] font-black uppercase text-slate-500 tracking-wider">
+                  Daftar Kontribusi Produk dalam Kategori (Periode Ini)
+                </h4>
+                <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm bg-white">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                        <th className="py-2.5 px-4">Nama Produk</th>
+                        <th className="py-2.5 px-4 text-center">Brand</th>
+                        <th className="py-2.5 px-4 text-center">Volume</th>
+                        <th className="py-2.5 px-4 text-right">Omzet Penjualan</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedCategoryProducts.slice(0, 15).map((prod) => {
+                        return (
+                          <tr 
+                            key={prod.sku} 
+                            onClick={() => {
+                              setSelectedTrendProductSku(prod.sku);
+                            }}
+                            className="border-b border-slate-100/60 last:border-0 hover:bg-slate-50/70 text-xs text-slate-600 font-bold cursor-pointer transition-all"
+                            title="Klik untuk melihat rincian grafik tren harian produk ini"
+                          >
+                            <td className="py-2.5 px-4">
+                              <div className="flex flex-col">
+                                <span className="text-slate-800 font-extrabold truncate max-w-[250px]">{prod.name}</span>
+                                <span className="text-[10px] text-slate-400 font-mono font-bold mt-0.5">{prod.sku}</span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-4 text-center text-slate-500">
+                              {prod.brand}
+                            </td>
+                            <td className="py-2.5 px-4 text-center text-slate-900 font-mono">
+                              {formatNumberIndo(prod.totalQty)} {prod.unit}
+                            </td>
+                            <td className="py-2.5 px-4 text-right text-indigo-600 font-mono font-black">
+                              {formatRupiah(prod.totalSales)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {selectedCategoryProducts.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="py-6 text-center text-slate-400 font-bold italic">
+                            Tidak ada data produk.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                  {selectedCategoryProducts.length > 15 && (
+                    <div className="p-3 bg-slate-50/50 border-t border-slate-100 text-center text-[10px] text-slate-400 font-bold">
+                      Menampilkan 15 produk teratas dari total {selectedCategoryProducts.length} produk.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setSelectedCategoryDetail(null)}
                 className="px-5 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-900 rounded-xl text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm hover:shadow"
               >
                 Tutup Detail

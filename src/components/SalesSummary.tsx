@@ -192,12 +192,38 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
   const todayComparison = useMemo(() => {
     if (salesData.length === 0) return null;
 
-    // Chronologically sort data to find the latest day
+    // Chronologically sort data
     const sorted = [...salesData].sort((a, b) => a.date.localeCompare(b.date));
-    const latestDay = sorted[sorted.length - 1];
 
-    // Get preceding 7 days
-    const preceding7Days = sorted.slice(Math.max(0, sorted.length - 8), sorted.length - 1);
+    // Get current real-time today's date in local time (YYYY-MM-DD)
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const todayDateStr = `${year}-${month}-${day}`;
+
+    // Find index of today's date in sorted array
+    let latestIndex = sorted.findIndex(day => day.date === todayDateStr);
+    
+    // If not found, look for latest day <= today's date
+    if (latestIndex === -1) {
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        if (sorted[i].date <= todayDateStr) {
+          latestIndex = i;
+          break;
+        }
+      }
+    }
+
+    // Fallback to the last element if still not found
+    if (latestIndex === -1) {
+      latestIndex = sorted.length - 1;
+    }
+
+    const latestDay = sorted[latestIndex];
+
+    // Get preceding 7 days relative to the resolved latestDay
+    const preceding7Days = sorted.slice(Math.max(0, latestIndex - 7), latestIndex);
     
     if (preceding7Days.length === 0) {
       return {

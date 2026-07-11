@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { motion } from 'motion/react';
 import { DailySales, MarketingEvent, ViewTab } from './types';
 import { parseDailySalesCSV, generateSampleMarketingEvents, formatDateIndo, formatRupiah, formatNumberIndo } from './utils';
 import SalesSummary from './components/SalesSummary';
@@ -527,13 +528,25 @@ export default function App() {
 
             {/* TAB: Product Performance Analysis */}
             {activeTab === 'products' && (
-              <SalesProducts />
+              <motion.div
+                key="products"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+              >
+                <SalesProducts />
+              </motion.div>
             )}
 
             {/* TAB: Dashboard Summary */}
             {activeTab === 'dashboard' && (
-              <div className="space-y-6">
-                
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                className="space-y-6"
+              >
                 {/* Print Report PDF CTA Bar */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 no-print">
                   <div className="flex items-center gap-3">
@@ -572,23 +585,35 @@ export default function App() {
                 <div className="pt-4 border-t border-slate-200/50">
                   <SalesDayOfWeek salesData={filteredSalesData} />
                 </div>
-              </div>
+              </motion.div>
             )}
 
             {/* TAB: Interactive Sales Calendar & Campaign planner */}
             {activeTab === 'calendar' && (
-              <div className="space-y-6">
+              <motion.div
+                key="calendar"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                className="space-y-6"
+              >
                 <SalesCalendar 
                   salesData={salesData} 
                   events={events} 
                   onSelectDate={(dateStr) => setSelectedDateStr(dateStr)} 
                 />
-              </div>
+              </motion.div>
             )}
 
             {/* TAB: Editable Sales Table and advanced filtering */}
             {activeTab === 'table' && (
-              <div className="space-y-6">
+              <motion.div
+                key="table"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                className="space-y-6"
+              >
                 <SalesTable 
                   salesData={filteredSalesData} 
                   globalStartDate={filterStartDate}
@@ -596,14 +621,20 @@ export default function App() {
                   onStartDateChange={setFilterStartDate}
                   onEndDateChange={setFilterEndDate}
                 />
-              </div>
+              </motion.div>
             )}
 
             {/* TAB: Targets and Future Run-Rate predictions */}
             {activeTab === 'predictions' && (
-              <div className="space-y-6">
+              <motion.div
+                key="predictions"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                className="space-y-6"
+              >
                 <SalesPredictions salesData={filteredSalesData} />
-              </div>
+              </motion.div>
             )}
 
           </div>

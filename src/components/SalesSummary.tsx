@@ -125,6 +125,9 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
   // Selected month for the 3-tier target tracking
   const [selectedTargetMonth, setSelectedTargetMonth] = useState<string>('');
 
+  // Period filter state for Distribution Channel Composition (default to harian)
+  const [distributionPeriod, setDistributionPeriod] = useState<'harian' | 'mingguan' | 'bulanan' | 'total'>('harian');
+
   // Extract available months from salesData
   const availableMonths = useMemo(() => {
     const monthsMap = new Map<string, { yearMonth: string; label: string; totalSales: number }>();
@@ -252,6 +255,42 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
       hasHistory: true
     };
   }, [salesData]);
+
+  // Dynamically scale channel splits based on distribution period (harian, mingguan, bulanan, total)
+  const scaledChannelData = useMemo(() => {
+    const daysCount = salesData.length || 1;
+    
+    let scaleFactor = 1;
+    let label = 'Total';
+    
+    if (distributionPeriod === 'harian') {
+      scaleFactor = 1 / daysCount;
+      label = 'Rata-rata Harian';
+    } else if (distributionPeriod === 'mingguan') {
+      scaleFactor = 7 / daysCount;
+      label = 'Rata-rata Mingguan (7 Hari)';
+    } else if (distributionPeriod === 'bulanan') {
+      scaleFactor = 30 / daysCount;
+      label = 'Rata-rata Bulanan (30 Hari)';
+    } else {
+      scaleFactor = 1;
+      label = 'Total Seluruh Periode';
+    }
+
+    const instanSales = stats.channelSplit.instan.sales * scaleFactor;
+    const instanTx = stats.channelSplit.instan.tx * scaleFactor;
+    const regulerSales = stats.channelSplit.reguler.sales * scaleFactor;
+    const regulerTx = stats.channelSplit.reguler.tx * scaleFactor;
+    const manualSales = stats.channelSplit.manual.sales * scaleFactor;
+    const manualTx = stats.channelSplit.manual.tx * scaleFactor;
+
+    return {
+      label,
+      instan: { sales: instanSales, tx: instanTx, pct: stats.channelSplit.instan.pct },
+      reguler: { sales: regulerSales, tx: regulerTx, pct: stats.channelSplit.reguler.pct },
+      manual: { sales: manualSales, tx: manualTx, pct: stats.channelSplit.manual.pct }
+    };
+  }, [salesData, stats, distributionPeriod]);
 
   return (
     <div className="space-y-6">
@@ -654,25 +693,56 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
 
       {/* Channel Splits Breakdown Details */}
       <div className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-200 shadow-sm">
-        <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-          <Activity className="w-4 h-4 text-indigo-500" />
-          Komposisi Penjualan per Jalur Distribusi
-        </h4>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+          <div>
+            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Activity className="w-4 h-4 text-indigo-500" />
+              Komposisi Penjualan per Jalur Distribusi
+            </h4>
+            <span className="text-[10px] text-slate-400 font-bold block mt-1">
+              Menampilkan {scaledChannelData.label}
+            </span>
+          </div>
+          <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200/50 self-start sm:self-auto no-print">
+            {(['harian', 'mingguan', 'bulanan', 'total'] as const).map((period) => (
+              <button
+                key={period}
+                onClick={() => setDistributionPeriod(period)}
+                className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                  distributionPeriod === period
+                    ? 'bg-white text-indigo-600 shadow-sm border-transparent'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {period === 'harian' && 'Harian'}
+                {period === 'mingguan' && 'Mingguan'}
+                {period === 'bulanan' && 'Bulanan'}
+                {period === 'total' && 'Total'}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
           {/* Instan Channel */}
           <div className="bg-emerald-50/50 border border-emerald-100 p-4 sm:p-5 rounded-2xl flex flex-col justify-between">
             <div>
               <div className="flex justify-between items-center mb-3">
                 <span className="text-[10px] font-black uppercase text-emerald-600 bg-emerald-100 px-2.5 py-0.5 rounded-md border border-emerald-200/40">Instan</span>
-                <span className="text-xs font-bold text-emerald-700">{stats.channelSplit.instan.pct.toFixed(1)}%</span>
+                <span className="text-xs font-bold text-emerald-700">{scaledChannelData.instan.pct.toFixed(1)}%</span>
               </div>
               <p className="text-lg sm:text-xl lg:text-base xl:text-lg font-black text-emerald-950 font-mono tracking-tight whitespace-nowrap overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                {formatRupiah(stats.channelSplit.instan.sales)}
+                {formatRupiah(scaledChannelData.instan.sales)}
               </p>
             </div>
             <div className="border-t border-emerald-100 pt-3 mt-3 flex justify-between text-xs font-bold text-emerald-800">
               <span>Transaksi:</span>
-              <span>{formatNumberIndo(stats.channelSplit.instan.tx)} Tx</span>
+              <span>
+                {scaledChannelData.instan.tx % 1 === 0 
+                  ? formatNumberIndo(scaledChannelData.instan.tx) 
+                  : scaledChannelData.instan.tx.toFixed(1)
+                } Tx
+              </span>
             </div>
           </div>
 
@@ -681,15 +751,20 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
             <div>
               <div className="flex justify-between items-center mb-3">
                 <span className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-100 px-2.5 py-0.5 rounded-md border border-indigo-200/40">Reguler</span>
-                <span className="text-xs font-bold text-indigo-700">{stats.channelSplit.reguler.pct.toFixed(1)}%</span>
+                <span className="text-xs font-bold text-indigo-700">{scaledChannelData.reguler.pct.toFixed(1)}%</span>
               </div>
               <p className="text-lg sm:text-xl lg:text-base xl:text-lg font-black text-indigo-950 font-mono tracking-tight whitespace-nowrap overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                {formatRupiah(stats.channelSplit.reguler.sales)}
+                {formatRupiah(scaledChannelData.reguler.sales)}
               </p>
             </div>
             <div className="border-t border-indigo-100 pt-3 mt-3 flex justify-between text-xs font-bold text-indigo-800">
               <span>Transaksi:</span>
-              <span>{formatNumberIndo(stats.channelSplit.reguler.tx)} Tx</span>
+              <span>
+                {scaledChannelData.reguler.tx % 1 === 0 
+                  ? formatNumberIndo(scaledChannelData.reguler.tx) 
+                  : scaledChannelData.reguler.tx.toFixed(1)
+                } Tx
+              </span>
             </div>
           </div>
 
@@ -698,15 +773,20 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
             <div>
               <div className="flex justify-between items-center mb-3">
                 <span className="text-[10px] font-black uppercase text-amber-600 bg-amber-100 px-2.5 py-0.5 rounded-md border border-amber-200/40">Manual</span>
-                <span className="text-xs font-bold text-amber-700">{stats.channelSplit.manual.pct.toFixed(1)}%</span>
+                <span className="text-xs font-bold text-amber-700">{scaledChannelData.manual.pct.toFixed(1)}%</span>
               </div>
               <p className="text-lg sm:text-xl lg:text-base xl:text-lg font-black text-amber-950 font-mono tracking-tight whitespace-nowrap overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                {formatRupiah(stats.channelSplit.manual.sales)}
+                {formatRupiah(scaledChannelData.manual.sales)}
               </p>
             </div>
             <div className="border-t border-amber-100 pt-3 mt-3 flex justify-between text-xs font-bold text-amber-800">
               <span>Transaksi:</span>
-              <span>{formatNumberIndo(stats.channelSplit.manual.tx)} Tx</span>
+              <span>
+                {scaledChannelData.manual.tx % 1 === 0 
+                  ? formatNumberIndo(scaledChannelData.manual.tx) 
+                  : scaledChannelData.manual.tx.toFixed(1)
+                } Tx
+              </span>
             </div>
           </div>
         </div>

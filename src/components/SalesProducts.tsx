@@ -5,7 +5,7 @@ import {
   Package, Search, Filter, ArrowUpDown, Tag, Compass, 
   TrendingUp, BarChart2, DollarSign, Flame, FolderOpen, 
   RefreshCw, AlertCircle, Award, Check, SlidersHorizontal,
-  ChevronLeft, ChevronRight, Download
+  ChevronLeft, ChevronRight, Download, X
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
@@ -105,6 +105,7 @@ export default function SalesProducts() {
   const [sortBy, setSortBy] = useState<string>('sales-desc');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(10);
+  const [selectedTrendProductSku, setSelectedTrendProductSku] = useState<string | null>(null);
 
   // Time-based filtering states (column 2 based daily/weekly/monthly filtering)
   const [timeFilterType, setTimeFilterType] = useState<'all' | 'daily' | 'weekly' | 'monthly'>('monthly');
@@ -175,24 +176,28 @@ export default function SalesProducts() {
     return Array.from(monthsSet).sort((a, b) => b.localeCompare(a)); // Sort descending (latest first)
   }, [products]);
 
-  // Pre-calculate 7-day sales trend (Qty) for all products
+  // Pre-calculate 7-day sales trend (Qty & Sales) for all products
   const productTrendMap = useMemo(() => {
-    if (products.length === 0) return { last7Days: [], trends: {} };
+    if (products.length === 0) return { last7Days: [], trends: {} as Record<string, { qty: number[]; sales: number[] }> };
 
     // Get the latest 7 unique days from availableDays
     const last7Days = [...availableDays.slice(0, 7)].reverse();
     const K = last7Days.length;
 
-    const trends: Record<string, number[]> = {};
+    const trends: Record<string, { qty: number[]; sales: number[] }> = {};
 
     products.forEach(p => {
       if (!p.sku || !p.date) return;
       const dayIdx = last7Days.indexOf(p.date);
       if (dayIdx !== -1) {
         if (!trends[p.sku]) {
-          trends[p.sku] = Array(K).fill(0);
+          trends[p.sku] = {
+            qty: Array(K).fill(0),
+            sales: Array(K).fill(0)
+          };
         }
-        trends[p.sku][dayIdx] += p.totalQty;
+        trends[p.sku].qty[dayIdx] += p.totalQty;
+        trends[p.sku].sales[dayIdx] += p.totalSales;
       }
     });
 
@@ -201,6 +206,27 @@ export default function SalesProducts() {
       trends
     };
   }, [products, availableDays]);
+
+  // Selected product and its 7-day trend chart data for the popup detailed view
+  const selectedTrendProduct = useMemo(() => {
+    if (!selectedTrendProductSku) return null;
+    // Find the product details by SKU (could be from products array or aggregated list)
+    return products.find(p => p.sku === selectedTrendProductSku) || null;
+  }, [selectedTrendProductSku, products]);
+
+  const selectedProductChartData = useMemo(() => {
+    if (!selectedTrendProductSku || !productTrendMap.trends[selectedTrendProductSku]) return [];
+    
+    const trend = productTrendMap.trends[selectedTrendProductSku];
+    return productTrendMap.last7Days.map((date, idx) => {
+      return {
+        date,
+        formattedDate: formatDateIndo(date),
+        qty: trend.qty[idx] || 0,
+        sales: trend.sales[idx] || 0
+      };
+    });
+  }, [selectedTrendProductSku, productTrendMap]);
 
   // Dynamic aggregation based on date period filters
   const aggregatedProducts = useMemo(() => {
@@ -1517,12 +1543,19 @@ export default function SalesProducts() {
                               {p.category}
                             </span>
                           </td>
-                          <td className="py-3.5 px-4">
-                            <div className="flex justify-center items-center">
+                          <td 
+                            className="py-3.5 px-4 cursor-pointer hover:bg-indigo-50/40 transition-colors group/trend"
+                            onClick={() => setSelectedTrendProductSku(p.sku)}
+                            title="Klik untuk melihat detail grafik tren 7 hari"
+                          >
+                            <div className="flex flex-col justify-center items-center gap-0.5">
                               <TrendMiniBarChart 
-                                data={productTrendMap.trends[p.sku] || Array(productTrendMap.last7Days.length).fill(0)} 
+                                data={productTrendMap.trends[p.sku]?.qty || Array(productTrendMap.last7Days.length).fill(0)} 
                                 dates={productTrendMap.last7Days} 
                               />
+                              <span className="text-[8px] font-black uppercase text-indigo-500 opacity-0 group-hover/trend:opacity-100 transition-opacity leading-none mt-1">
+                                Klik Detail
+                              </span>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 text-right font-black text-slate-700">
@@ -1613,6 +1646,200 @@ export default function SalesProducts() {
             </>
           )}
         </>
+      )}
+
+      {/* DETAILED 7-DAY TREND POPUP MODAL */}
+      {selectedTrendProductSku && selectedTrendProduct && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in no-print"
+          onClick={() => setSelectedTrendProductSku(null)}
+        >
+          <div 
+            className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-start gap-3.5">
+                <div className="p-3 bg-indigo-50 border border-indigo-100/60 text-indigo-600 rounded-2xl shrink-0">
+                  <Package className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm sm:text-base font-black text-slate-800 leading-tight">
+                      {selectedTrendProduct.name}
+                    </h3>
+                    <span className="text-[10px] bg-slate-100 text-slate-500 font-extrabold px-2 py-0.5 rounded-md font-mono border border-slate-200/40">
+                      {selectedTrendProduct.sku}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-400 font-bold">
+                    <span>Brand: <strong className="text-slate-600">{selectedTrendProduct.brand}</strong></span>
+                    <span className="text-slate-200">•</span>
+                    <span>Kategori: <strong className="text-slate-600">{selectedTrendProduct.category}</strong></span>
+                  </div>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedTrendProductSku(null)}
+                className="p-2 hover:bg-slate-200/60 rounded-xl transition-all text-slate-400 hover:text-slate-800 cursor-pointer border border-transparent hover:border-slate-200/40"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+              
+              {/* Summary Stats Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-indigo-50/40 border border-indigo-100 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-indigo-500 tracking-wider">Total Terjual (7 Hari)</span>
+                  <p className="text-lg font-black text-indigo-950 mt-1 font-mono">
+                    {formatNumberIndo(selectedProductChartData.reduce((sum, d) => sum + d.qty, 0))} <span className="text-xs font-bold text-indigo-500">{selectedTrendProduct.unit}</span>
+                  </p>
+                </div>
+                <div className="bg-emerald-50/40 border border-emerald-100 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider">Total Omzet (7 Hari)</span>
+                  <p className="text-lg font-black text-emerald-950 mt-1 font-mono">
+                    {formatRupiah(selectedProductChartData.reduce((sum, d) => sum + d.sales, 0))}
+                  </p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200/60 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Rerata Harga Jual</span>
+                  <p className="text-lg font-black text-slate-800 mt-1 font-mono">
+                    {(() => {
+                      const totalQty = selectedProductChartData.reduce((sum, d) => sum + d.qty, 0);
+                      const totalSales = selectedProductChartData.reduce((sum, d) => sum + d.sales, 0);
+                      return formatRupiah(totalQty > 0 ? totalSales / totalQty : 0);
+                    })()}
+                  </p>
+                </div>
+              </div>
+
+              {/* Chart Visualizer */}
+              <div className="bg-slate-50/60 rounded-2xl p-4 border border-slate-100">
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className="text-[11px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-indigo-500" />
+                    Grafik Tren Volume & Omzet (7 Hari Terakhir)
+                  </h4>
+                  <span className="text-[9px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                    Double Axis Chart
+                  </span>
+                </div>
+                
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={selectedProductChartData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis 
+                        dataKey="formattedDate" 
+                        tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'bold' }} 
+                        axisLine={false} 
+                        tickLine={false} 
+                      />
+                      <YAxis 
+                        yAxisId="left" 
+                        tick={{ fontSize: 9, fill: '#6366f1', fontWeight: 'bold' }} 
+                        axisLine={false} 
+                        tickLine={false}
+                        label={{ 
+                          value: `Volume (${selectedTrendProduct.unit})`, 
+                          angle: -90, 
+                          position: 'insideLeft', 
+                          style: { fontSize: 9, fill: '#6366f1', fontWeight: 'bold', textAnchor: 'middle' },
+                          offset: 0
+                        }} 
+                      />
+                      <YAxis 
+                        yAxisId="right" 
+                        orientation="right" 
+                        tick={{ fontSize: 9, fill: '#10b981', fontWeight: 'bold' }} 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tickFormatter={(v) => formatRupiahCompact(v)}
+                        label={{ 
+                          value: 'Omzet (IDR)', 
+                          angle: 90, 
+                          position: 'insideRight', 
+                          style: { fontSize: 9, fill: '#10b981', fontWeight: 'bold', textAnchor: 'middle' },
+                          offset: 10
+                        }} 
+                      />
+                      <Tooltip 
+                        formatter={(value, name) => {
+                          if (name === 'sales') return [formatRupiah(value as number), 'Omzet'];
+                          return [`${value} ${selectedTrendProduct.unit}`, 'Volume'];
+                        }}
+                        contentStyle={{ background: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '10px' }}
+                      />
+                      <Legend 
+                        verticalAlign="top" 
+                        height={36} 
+                        iconType="circle" 
+                        wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} 
+                      />
+                      <Bar yAxisId="left" dataKey="qty" name="Volume Terjual" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                      <Bar yAxisId="right" dataKey="sales" name="Omzet Penjualan" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Tabular Breakdown */}
+              <div className="space-y-3">
+                <h4 className="text-[11px] font-black uppercase text-slate-500 tracking-wider">
+                  Rincian Data Harian
+                </h4>
+                <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm bg-white">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                        <th className="py-2.5 px-4">Hari & Tanggal</th>
+                        <th className="py-2.5 px-4 text-center">Volume</th>
+                        <th className="py-2.5 px-4 text-right">Total Omzet</th>
+                        <th className="py-2.5 px-4 text-right">Rerata Harga</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedProductChartData.map((item, idx) => {
+                        const price = item.qty > 0 ? item.sales / item.qty : 0;
+                        return (
+                          <tr key={idx} className="border-b border-slate-100/60 last:border-0 hover:bg-slate-50/40 text-xs text-slate-600 font-bold">
+                            <td className="py-2.5 px-4 text-slate-800">
+                              {item.formattedDate}
+                            </td>
+                            <td className="py-2.5 px-4 text-center text-slate-900 font-mono">
+                              {item.qty} {selectedTrendProduct.unit}
+                            </td>
+                            <td className="py-2.5 px-4 text-right text-emerald-600 font-mono">
+                              {formatRupiah(item.sales)}
+                            </td>
+                            <td className="py-2.5 px-4 text-right text-slate-400 font-mono">
+                              {formatRupiah(price)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setSelectedTrendProductSku(null)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-900 rounded-xl text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm hover:shadow"
+              >
+                Tutup Detail
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

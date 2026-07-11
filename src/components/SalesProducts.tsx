@@ -5,11 +5,14 @@ import {
   Package, Search, Filter, ArrowUpDown, Tag, Compass, 
   TrendingUp, BarChart2, DollarSign, Flame, FolderOpen, 
   RefreshCw, AlertCircle, Award, Check, SlidersHorizontal,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Download
 } from 'lucide-react';
 import { 
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell 
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+  PieChart, Pie, Legend
 } from 'recharts';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const PRODUCTS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=68677243&single=true&output=csv';
 
@@ -47,6 +50,19 @@ function formatWeekIndo(weekMondayStr: string): string {
   return `Minggu Mulai ${day} ${month} '${year}`;
 }
 
+function formatDateIndo(dateStr: string): string {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+  const day = date.getDate();
+  const monthsIndo = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+  const month = monthsIndo[date.getMonth()];
+  const year = date.getFullYear();
+  return `${day} ${month} ${year}`;
+}
+
 export default function SalesProducts() {
   const [products, setProducts] = useState<ProductPerformance[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -58,10 +74,16 @@ export default function SalesProducts() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(10);
 
-  // Time-based filtering states (column 2 based weekly/monthly filtering)
-  const [timeFilterType, setTimeFilterType] = useState<'all' | 'weekly' | 'monthly'>('all');
+  // Time-based filtering states (column 2 based daily/weekly/monthly filtering)
+  const [timeFilterType, setTimeFilterType] = useState<'all' | 'daily' | 'weekly' | 'monthly'>('monthly');
+  const [selectedDay, setSelectedDay] = useState<string>('all');
   const [selectedWeek, setSelectedWeek] = useState<string>('all');
-  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  });
 
   // Fetch product CSV data
   const fetchProductData = async () => {
@@ -87,6 +109,17 @@ export default function SalesProducts() {
   useEffect(() => {
     fetchProductData();
   }, []);
+
+  // Get all unique days from the dataset
+  const availableDays = useMemo(() => {
+    const daysSet = new Set<string>();
+    products.forEach(p => {
+      if (p.date) {
+        daysSet.add(p.date); // "YYYY-MM-DD"
+      }
+    });
+    return Array.from(daysSet).sort((a, b) => b.localeCompare(a)); // Sort descending (latest first)
+  }, [products]);
 
   // Get all unique weeks from the dataset
   const availableWeeks = useMemo(() => {
@@ -115,7 +148,9 @@ export default function SalesProducts() {
     let filteredTransactions = [...products];
 
     // Filter by date first
-    if (timeFilterType === 'weekly' && selectedWeek !== 'all') {
+    if (timeFilterType === 'daily' && selectedDay !== 'all') {
+      filteredTransactions = filteredTransactions.filter(t => t.date === selectedDay);
+    } else if (timeFilterType === 'weekly' && selectedWeek !== 'all') {
       filteredTransactions = filteredTransactions.filter(t => {
         if (!t.date) return false;
         const weekMonday = getMondayOfWeek(t.date);
@@ -162,7 +197,7 @@ export default function SalesProducts() {
     });
 
     return Object.values(aggregation);
-  }, [products, timeFilterType, selectedWeek, selectedMonth]);
+  }, [products, timeFilterType, selectedDay, selectedWeek, selectedMonth]);
 
   // Products filtered by Category and Brand (for overall stats and charts)
   const filteredProducts = useMemo(() => {
@@ -298,6 +333,79 @@ export default function SalesProducts() {
     return null;
   };
 
+  const BRAND_COLORS = [
+    '#6366f1', // Indigo
+    '#10b981', // Emerald
+    '#3b82f6', // Blue
+    '#f43f5e', // Rose
+    '#f59e0b', // Amber
+    '#8b5cf6', // Violet
+    '#0ea5e9', // Sky
+    '#14b8a6', // Teal
+    '#ec4899', // Pink
+    '#f97316', // Orange
+    '#a855f7', // Purple
+    '#84cc16'  // Lime
+  ];
+
+  const brandPieTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      const totalRevenue = stats?.totalRevenue || 0;
+      const pct = totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0;
+      return (
+        <div className="bg-slate-900/95 backdrop-blur-md text-white p-3.5 rounded-2xl border border-slate-800 shadow-2xl space-y-1.5 font-sans text-xs">
+          <p className="font-black text-slate-200 border-b border-slate-800/80 pb-1 leading-snug">
+            {data.name}
+          </p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono">
+            <span className="text-slate-400 font-bold">Terjual:</span>
+            <span className="text-right font-black text-emerald-400">{formatNumberIndo(data.qty)} pcs</span>
+            <span className="text-slate-400 font-bold">Omzet:</span>
+            <span className="text-right font-black text-indigo-400">{formatRupiah(data.revenue)}</span>
+            <span className="text-slate-400 font-bold">Dominasi:</span>
+            <span className="text-right font-black text-pink-400">{pct.toFixed(1)}%</span>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Brand Chart Data formatted for clean Donut Chart representation (Top 5 + Lain-lain)
+  const brandPieChartData = useMemo(() => {
+    if (!stats || !stats.brandSummary || stats.brandSummary.length === 0) return [];
+    
+    const summary = [...stats.brandSummary];
+    if (summary.length <= 6) {
+      return summary;
+    }
+    
+    const top5 = summary.slice(0, 5);
+    const others = summary.slice(5);
+    const othersRevenue = others.reduce((acc, curr) => acc + curr.revenue, 0);
+    const othersQty = others.reduce((acc, curr) => acc + curr.qty, 0);
+    
+    return [
+      ...top5,
+      {
+        name: 'Lain-lain',
+        revenue: othersRevenue,
+        qty: othersQty
+      }
+    ];
+  }, [stats]);
+
+  const handleBrandClick = (brandName: string) => {
+    if (brandName === 'Lain-lain') return;
+    if (selectedBrand === brandName) {
+      setSelectedBrand('all');
+    } else {
+      setSelectedBrand(brandName);
+    }
+    setCurrentPage(1);
+  };
+
   // Filtered and Sorted products list
   const filteredAndSortedProducts = useMemo(() => {
     let result = [...aggregatedProducts];
@@ -351,6 +459,274 @@ export default function SalesProducts() {
     setCurrentPage(1);
   }, [searchQuery, selectedCategory, selectedBrand, sortBy, itemsPerPage]);
 
+  const downloadPDFReport = () => {
+    if (!stats) return;
+
+    // Create a new jsPDF instance (A4 size, portrait, mm)
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    }) as any;
+
+    const pageTitle = "LAPORAN ANALISA KINERJA PRODUK";
+    
+    // Header styling
+    doc.setFillColor(30, 41, 59); // Slate-800 background for top banner
+    doc.rect(0, 0, 210, 38, 'F');
+
+    // Title text inside banner
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text(pageTitle, 15, 16);
+
+    // Subtitle / metadata inside banner
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(194, 205, 220); // light slate color
+    const printDate = new Date().toLocaleString('id-ID', { 
+      year: 'numeric', month: 'long', day: 'numeric', 
+      hour: '2-digit', minute: '2-digit' 
+    });
+    doc.text(`Dicetak pada: ${printDate} WIB`, 15, 23);
+    doc.text(`Sumber Data: Google Spreadsheet - Transaksi Penjualan`, 15, 28);
+    doc.text(`Sistem: Analisa Produk & Dashboard Omzet`, 15, 33);
+
+    // Active filters summary box on the right side of the header
+    doc.setFillColor(51, 65, 85); // Slate-700
+    doc.roundedRect(125, 6, 70, 26, 2, 2, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text("FILTER AKTIF:", 129, 11);
+    
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(226, 232, 240);
+    
+    let timeLabel = "Semua Waktu";
+    if (timeFilterType === 'daily' && selectedDay !== 'all') timeLabel = `Harian: ${formatDateIndo(selectedDay)}`;
+    else if (timeFilterType === 'weekly' && selectedWeek !== 'all') timeLabel = `${formatWeekIndo(selectedWeek)}`;
+    else if (timeFilterType === 'monthly' && selectedMonth !== 'all') timeLabel = `${formatMonthIndo(selectedMonth)}`;
+    
+    doc.text(`- Rentang: ${timeLabel}`, 129, 15);
+    doc.text(`- Kategori: ${selectedCategory === 'all' ? 'Semua Kategori' : selectedCategory}`, 129, 19);
+    doc.text(`- Brand: ${selectedBrand === 'all' ? 'Semua Brand' : selectedBrand}`, 129, 23);
+    doc.text(`- Cari SKU/Nama: ${searchQuery.trim() === '' ? 'Tidak ada' : searchQuery}`, 129, 27);
+
+    // Line separator below header banner
+    let currentY = 46;
+
+    // Title for Metrics Section
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text("I. RINGKASAN METRIK ANALITIK (KPI)", 15, currentY);
+    currentY += 5;
+
+    // Draw grid of KPI Cards (2 rows of boxes)
+    // Card dimensions
+    const cardW = 58;
+    const cardH = 20;
+    const cardGap = 3;
+    const startX = 15;
+
+    const drawKPICard = (x: number, y: number, label: string, value: string, subtext: string, bgColor: [number, number, number]) => {
+      // Background card
+      doc.setFillColor(248, 250, 252); // Slate-50 background
+      doc.roundedRect(x, y, cardW, cardH, 2, 2, 'F');
+      
+      // Left indicator accent line
+      doc.setFillColor(...bgColor);
+      doc.rect(x, y, 1.5, cardH, 'F');
+
+      // Text labels inside card
+      doc.setTextColor(100, 116, 139); // Slate-500
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.text(label.toUpperCase(), x + 4, y + 5.5);
+
+      doc.setTextColor(15, 23, 42); // Slate-900
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.text(value, x + 4, y + 11.5);
+
+      doc.setTextColor(148, 163, 184); // Slate-400
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.text(subtext, x + 4, y + 16.5);
+    };
+
+    // First Row KPIs
+    // 1. Total Omzet
+    drawKPICard(startX, currentY, "Total Omzet Penjualan", formatRupiah(stats.totalRevenue), `Dari produk terfilter`, [99, 102, 241]); // Indigo
+    // 2. Qty Terjual
+    drawKPICard(startX + cardW + cardGap, currentY, "Total Produk Terjual", `${formatNumberIndo(stats.totalQty)} pcs`, `Volume penjualan`, [16, 185, 129]); // Emerald
+    // 3. Unique SKU
+    drawKPICard(startX + (cardW + cardGap) * 2, currentY, "Jumlah SKU Terjual", `${formatNumberIndo(stats.uniqueProducts)} SKU`, `Produk unik aktif`, [14, 165, 233]); // Sky
+
+    currentY += cardH + cardGap;
+
+    // Second Row KPIs
+    // 4. Bestselling SKU
+    const bestsellerLabel = stats.bestseller ? `${stats.bestseller.sku}` : "Tidak ada";
+    const bestsellerSub = stats.bestseller 
+      ? `${stats.bestseller.name.substring(0, 25)}${stats.bestseller.name.length > 25 ? '...' : ''}` 
+      : "Tidak ada transaksi";
+    drawKPICard(startX, currentY, "Produk Terlaris (SKU)", bestsellerLabel, bestsellerSub, [244, 63, 94]); // Rose
+
+    // 5. Kategori Utama
+    const topCatName = stats.topCategory || "Tidak ada";
+    const topCatSub = stats.topCategoryRevenue > 0 ? `Omzet: ${formatRupiahCompact(stats.topCategoryRevenue)}` : "Tidak ada transaksi";
+    drawKPICard(startX + cardW + cardGap, currentY, "Kategori Terlaris", topCatName, topCatSub, [245, 158, 11]); // Amber
+
+    // 6. Bestseller Omzet
+    const bestsellerVal = stats.bestseller ? formatRupiah(stats.bestseller.totalSales) : "Rp 0";
+    drawKPICard(startX + (cardW + cardGap) * 2, currentY, "Omzet SKU Terlaris", bestsellerVal, stats.bestseller ? `Terjual ${stats.bestseller.totalQty} pcs` : "", [139, 92, 246]); // Violet
+
+    currentY += cardH + 10;
+
+    // II. Brand and Category Dominance Tables side-by-side or stacked
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text("II. RINGKASAN PENJUALAN PER MERK & KATEGORI", 15, currentY);
+    currentY += 5;
+
+    // Generate brand table content
+    const brandRows = stats.brandSummary.map((b, i) => {
+      const pct = stats.totalRevenue > 0 ? (b.revenue / stats.totalRevenue) * 100 : 0;
+      return [
+        (i + 1).toString(),
+        b.name,
+        `${formatNumberIndo(b.qty)} pcs`,
+        formatRupiah(b.revenue),
+        `${pct.toFixed(1)}%`
+      ];
+    });
+
+    // Generate category table content
+    const categoryRows = stats.categorySummary.map((c, i) => {
+      const pct = stats.totalRevenue > 0 ? (c.revenue / stats.totalRevenue) * 100 : 0;
+      return [
+        (i + 1).toString(),
+        c.name,
+        `${formatNumberIndo(c.qty)} pcs`,
+        formatRupiah(c.revenue),
+        `${pct.toFixed(1)}%`
+      ];
+    });
+
+    // Draw the two summaries in autotable
+    // First, Brand Summary Table
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: 15, right: 110 },
+      head: [['No', 'Merk / Brand', 'Qty', 'Total Omzet', 'Kontr.']],
+      body: brandRows.slice(0, 10), // Show top 10 brands
+      theme: 'striped',
+      headStyles: { fillColor: [79, 70, 229], fontSize: 7, fontStyle: 'bold', halign: 'center' }, // Indigo-600
+      bodyStyles: { fontSize: 7 },
+      columnStyles: {
+        0: { cellWidth: 8, halign: 'center' },
+        1: { cellWidth: 32 },
+        2: { cellWidth: 15, halign: 'right' },
+        3: { cellWidth: 22, halign: 'right' },
+        4: { cellWidth: 12, halign: 'right' }
+      },
+      styles: { cellPadding: 1.5 }
+    });
+
+    // Next, Category Summary Table on the right side
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: 110, right: 15 },
+      head: [['No', 'Kategori', 'Qty', 'Total Omzet', 'Kontr.']],
+      body: categoryRows.slice(0, 10), // Show top 10 categories
+      theme: 'striped',
+      headStyles: { fillColor: [16, 185, 129], fontSize: 7, fontStyle: 'bold', halign: 'center' }, // Emerald-500
+      bodyStyles: { fontSize: 7 },
+      columnStyles: {
+        0: { cellWidth: 8, halign: 'center' },
+        1: { cellWidth: 32 },
+        2: { cellWidth: 15, halign: 'right' },
+        3: { cellWidth: 22, halign: 'right' },
+        4: { cellWidth: 12, halign: 'right' }
+      },
+      styles: { cellPadding: 1.5 }
+    });
+
+    // Get the bottom-most Y of both tables to continue
+    currentY = Math.max(doc.lastAutoTable.finalY || currentY, 130) + 12;
+
+    // Check if we have enough space for the third section header, else add page
+    if (currentY > 240) {
+      doc.addPage();
+      currentY = 18;
+    }
+
+    // III. Detailed Product Performance Table
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text("III. LAPORAN DETIL PERFORMA PRODUK (SKU)", 15, currentY);
+    currentY += 5;
+
+    const productRows = filteredAndSortedProducts.map((p, i) => [
+      (i + 1).toString(),
+      p.sku,
+      p.name,
+      p.category,
+      p.brand,
+      `${formatNumberIndo(p.totalQty)} ${p.unit || 'PCS'}`,
+      formatRupiah(p.totalSales)
+    ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: 15, right: 15 },
+      head: [['No', 'SKU', 'Nama Produk', 'Kategori', 'Brand', 'Qty Terjual', 'Omzet']],
+      body: productRows,
+      theme: 'striped',
+      headStyles: { fillColor: [30, 41, 59], fontSize: 8, fontStyle: 'bold', halign: 'center' }, // Slate-800
+      bodyStyles: { fontSize: 7.5 },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 25, fontStyle: 'bold' },
+        2: { cellWidth: 60 },
+        3: { cellWidth: 25 },
+        4: { cellWidth: 22 },
+        5: { cellWidth: 18, halign: 'right' },
+        6: { cellWidth: 24, halign: 'right' }
+      },
+      styles: { cellPadding: 1.8 },
+      // Footer page numbering and decoration
+      didDrawPage: (data: any) => {
+        // Footer text on each page
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184); // Slate-400
+        doc.setFont('helvetica', 'normal');
+        
+        // Horizontal line separator in footer
+        doc.setFillColor(241, 245, 249);
+        doc.rect(15, 282, 180, 0.5, 'F');
+        
+        doc.text("Laporan Analisa Kinerja Produk - Otomatisasi Sistem Google Sheet & Dashboard Penjualan", 15, 287);
+        doc.text(`Halaman ${data.pageNumber} dari ${doc.getNumberOfPages()}`, 180, 287);
+      }
+    });
+
+    // Save PDF file
+    let filterFilename = "Semua_Waktu";
+    if (timeFilterType === 'daily' && selectedDay !== 'all') filterFilename = `Harian_${selectedDay}`;
+    else if (timeFilterType === 'weekly' && selectedWeek !== 'all') filterFilename = `Mingguan_${selectedWeek}`;
+    else if (timeFilterType === 'monthly' && selectedMonth !== 'all') filterFilename = `Bulanan_${selectedMonth}`;
+
+    const filename = `Laporan_Performa_Produk_${filterFilename}.pdf`;
+    doc.save(filename);
+  };
+
   return (
     <div className="space-y-6">
       
@@ -366,14 +742,25 @@ export default function SalesProducts() {
           </div>
         </div>
         
-        <button
-          onClick={fetchProductData}
-          disabled={isLoading}
-          className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-200/50 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          Sinkronkan Data Produk
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={downloadPDFReport}
+            disabled={isLoading || !stats}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer shadow-sm disabled:pointer-events-none"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Unduh Laporan PDF
+          </button>
+
+          <button
+            onClick={fetchProductData}
+            disabled={isLoading}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-200/50 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            Sinkronkan Data Produk
+          </button>
+        </div>
       </div>
 
       {isLoading && (
@@ -405,7 +792,7 @@ export default function SalesProducts() {
         </div>
       )}
 
-      {!isLoading && !isError && stats && (
+      {!isLoading && !isError && (
         <>
           {/* Top Control & Filter Bar */}
           <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
@@ -460,18 +847,36 @@ export default function SalesProducts() {
                     onChange={e => {
                       setTimeFilterType(e.target.value as any);
                       // Reset sub filters on change
+                      setSelectedDay('all');
                       setSelectedWeek('all');
                       setSelectedMonth('all');
                     }}
                     className="px-3 py-2 bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-xs font-bold text-slate-600 min-w-[140px]"
                   >
                     <option value="all">Semua Waktu</option>
+                    <option value="daily">Filter Harian</option>
                     <option value="weekly">Filter Mingguan</option>
                     <option value="monthly">Filter Bulanan</option>
                   </select>
                 </div>
 
-                {/* Conditional Sub-filters for Weekly / Monthly */}
+                {/* Conditional Sub-filters for Daily / Weekly / Monthly */}
+                {timeFilterType === 'daily' && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Pilih Hari (Kolom 2):</span>
+                    <select
+                      value={selectedDay}
+                      onChange={e => setSelectedDay(e.target.value)}
+                      className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-200 text-indigo-700 focus:bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-xs font-bold min-w-[160px]"
+                    >
+                      <option value="all">Semua Hari ({availableDays.length})</option>
+                      {availableDays.map(dy => (
+                        <option key={dy} value={dy}>{formatDateIndo(dy)}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {timeFilterType === 'weekly' && (
                   <div className="flex flex-col gap-1">
                     <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Pilih Minggu (Kolom 2):</span>
@@ -509,12 +914,15 @@ export default function SalesProducts() {
             {/* Show an active filter status line */}
             <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400 font-bold bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
               <span className="uppercase text-[9px] bg-slate-200/80 text-slate-600 px-1.5 py-0.5 rounded">Status Filter:</span>
-              <span>Menampilkan total <strong>{formatNumberIndo(stats.uniqueProducts)}</strong> produk unik dengan akumulasi omzet <strong>{formatRupiah(stats.totalRevenue)}</strong></span>
+              <span>Menampilkan total <strong>{formatNumberIndo(stats ? stats.uniqueProducts : 0)}</strong> produk unik dengan akumulasi omzet <strong>{formatRupiah(stats ? stats.totalRevenue : 0)}</strong></span>
               {selectedCategory !== 'all' && (
                 <span className="bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100">Kategori: {selectedCategory}</span>
               )}
               {selectedBrand !== 'all' && (
                 <span className="bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded border border-emerald-100">Merk: {selectedBrand}</span>
+              )}
+              {timeFilterType === 'daily' && selectedDay !== 'all' && (
+                <span className="bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded border border-rose-100">{formatDateIndo(selectedDay)}</span>
               )}
               {timeFilterType === 'weekly' && selectedWeek !== 'all' && (
                 <span className="bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded border border-rose-100">{formatWeekIndo(selectedWeek)}</span>
@@ -528,6 +936,7 @@ export default function SalesProducts() {
                     setSelectedCategory('all');
                     setSelectedBrand('all');
                     setTimeFilterType('all');
+                    setSelectedDay('all');
                     setSelectedWeek('all');
                     setSelectedMonth('all');
                   }}
@@ -538,6 +947,36 @@ export default function SalesProducts() {
               )}
             </div>
           </div>
+
+          {!stats ? (
+            <div className="bg-white rounded-3xl p-16 text-center border border-slate-200 shadow-sm space-y-5 flex flex-col items-center justify-center min-h-[350px]">
+              <div className="p-4 bg-indigo-50 border border-indigo-100 text-indigo-500 rounded-full">
+                <AlertCircle className="w-10 h-10 animate-bounce" />
+              </div>
+              <div className="max-w-md space-y-2">
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Tidak Ada Data Penjualan</h3>
+                <p className="text-xs text-slate-500 font-semibold leading-relaxed">
+                  Tidak ditemukan transaksi penjualan untuk filter atau periode yang sedang aktif (Bulan Berjalan: {timeFilterType === 'monthly' && selectedMonth !== 'all' ? formatMonthIndo(selectedMonth) : 'N/A'}). 
+                  Silakan ganti rentang waktu atau kategori untuk menganalisa produk.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedCategory('all');
+                  setSelectedBrand('all');
+                  setTimeFilterType('all');
+                  setSelectedDay('all');
+                  setSelectedWeek('all');
+                  setSelectedMonth('all');
+                  setSearchQuery('');
+                }}
+                className="text-xs font-black uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-700 px-6 py-3 rounded-xl shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              >
+                Tampilkan Semua Waktu &amp; Produk
+              </button>
+            </div>
+          ) : (
+            <>
 
           {/* Statistics KPI Widgets */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -740,36 +1179,123 @@ export default function SalesProducts() {
                   <Award className="w-4.5 h-4.5 text-indigo-500" />
                   <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Kinerja per Merk / Brand</h3>
                 </div>
-                <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-bold uppercase tracking-wider">Diurutkan Omzet</span>
+                {selectedBrand !== 'all' ? (
+                  <button 
+                    onClick={() => setSelectedBrand('all')}
+                    className="text-[9px] bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-600 px-2.5 py-1 rounded-lg font-black uppercase tracking-wider transition-all cursor-pointer"
+                  >
+                    Batal Filter
+                  </button>
+                ) : (
+                  <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-bold uppercase tracking-wider">Dominasi Brand (Donut)</span>
+                )}
               </div>
 
-              <div className="space-y-3.5 max-h-[280px] overflow-y-auto pr-1">
-                {stats.brandSummary.map((br, idx) => {
-                  const pct = stats.totalRevenue > 0 ? (br.revenue / stats.totalRevenue) * 100 : 0;
-                  return (
-                    <div key={br.name} className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="w-4 h-4 flex items-center justify-center text-[10px] font-extrabold bg-slate-100 text-slate-500 rounded-md shrink-0">
-                            {idx + 1}
-                          </span>
-                          <span className="truncate">{br.name}</span>
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                {/* Donut Chart */}
+                <div className="md:col-span-5 h-[230px] flex items-center justify-center relative">
+                  {brandPieChartData.length > 0 ? (
+                    <>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={brandPieChartData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={50}
+                            outerRadius={75}
+                            paddingAngle={3}
+                            dataKey="revenue"
+                          >
+                            {brandPieChartData.map((entry, index) => {
+                              const isSelected = selectedBrand === entry.name;
+                              const hasSelection = selectedBrand !== 'all';
+                              const baseColor = BRAND_COLORS[index % BRAND_COLORS.length];
+                              return (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={baseColor} 
+                                  stroke={isSelected ? '#1e293b' : '#fff'}
+                                  strokeWidth={isSelected ? 3 : 1}
+                                  opacity={hasSelection ? (isSelected ? 1 : 0.4) : 1}
+                                  onClick={() => handleBrandClick(entry.name)}
+                                  className="cursor-pointer outline-none transition-all duration-200"
+                                />
+                              );
+                            })}
+                          </Pie>
+                          <Tooltip content={brandPieTooltip} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      {/* Absolute Center Text */}
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4 text-center">
+                        {selectedBrand !== 'all' ? (
+                          <>
+                            <span className="text-[8px] uppercase font-black tracking-wider text-indigo-500">Filter Aktif</span>
+                            <span className="text-[11px] font-black text-slate-800 mt-0.5 truncate max-w-[100px]" title={selectedBrand}>
+                              {selectedBrand}
+                            </span>
+                            <span className="text-[8px] text-slate-400 font-bold mt-0.5">Klik untuk reset</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-[9px] uppercase font-black tracking-wider text-slate-400">Total Brand</span>
+                            <span className="text-xs font-black text-slate-700 mt-0.5">{stats.brandSummary.length} Merk</span>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-slate-400 text-xs italic font-bold">Tidak ada data</span>
+                  )}
+                </div>
+
+                {/* Brand List */}
+                <div className="md:col-span-7 space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                  {stats.brandSummary.map((br, idx) => {
+                    const pct = stats.totalRevenue > 0 ? (br.revenue / stats.totalRevenue) * 100 : 0;
+                    const color = BRAND_COLORS[idx % BRAND_COLORS.length] || '#94a3b8';
+                    const isSelected = selectedBrand === br.name;
+                    const hasSelection = selectedBrand !== 'all';
+                    return (
+                      <div 
+                        key={br.name} 
+                        onClick={() => handleBrandClick(br.name)}
+                        className={`space-y-1 p-2 rounded-xl transition-all cursor-pointer border ${
+                          isSelected 
+                            ? 'bg-indigo-50/70 border-indigo-200 shadow-sm' 
+                            : 'border-transparent hover:bg-slate-50'
+                        } ${hasSelection && !isSelected ? 'opacity-40 hover:opacity-75' : ''}`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold text-slate-700">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span 
+                              className="w-4 h-4 flex items-center justify-center text-[9px] font-extrabold text-white rounded shrink-0"
+                              style={{ backgroundColor: color }}
+                            >
+                              {idx + 1}
+                            </span>
+                            <span className="truncate" title={br.name}>{br.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2.5 shrink-0 text-right font-mono">
+                            <span className="text-slate-400 text-[10px]">{formatNumberIndo(br.qty)} pcs</span>
+                            <span className="text-slate-600 font-extrabold">{formatRupiah(br.revenue)}</span>
+                            <span className="text-[10px] text-indigo-600 font-black min-w-[32px]">{pct.toFixed(1)}%</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 shrink-0 text-right">
-                          <span className="text-slate-400 text-[11px]">{formatNumberIndo(br.qty)} pcs</span>
-                          <span className="text-emerald-600">{formatRupiah(br.revenue)}</span>
-                          <span className="text-[10px] text-slate-400 font-black min-w-[36px]">{pct.toFixed(1)}%</span>
+                        <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full rounded-full transition-all"
+                            style={{ 
+                              width: `${pct}%`,
+                              backgroundColor: color
+                            }}
+                          />
                         </div>
                       </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-emerald-500 rounded-full transition-all"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -1016,6 +1542,8 @@ export default function SalesProducts() {
             )}
 
           </div>
+            </>
+          )}
         </>
       )}
 

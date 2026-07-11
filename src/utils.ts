@@ -338,6 +338,10 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
   let brandIdx = headers.findIndex(h => h.toLowerCase() === 'merk' || h.toLowerCase() === 'brand');
   // Tanggal: Column 2 (index 1 in 1-based header starting with "")
   let dateIdx = headers.findIndex(h => h.toLowerCase() === 'tanggal' || h.toLowerCase() === 'date' || h.toLowerCase() === 'tgl');
+  // Qty: Column 10 (index 9 in 1-based header starting with "")
+  let qtyIdx = headers.findIndex(h => h.toLowerCase() === 'qty' || h.toLowerCase() === 'quantity');
+  // Invoice/Nomer: Column 3 (index 2 in 1-based header starting with "")
+  let nomerIdx = headers.findIndex(h => h.toLowerCase() === 'nomer' || h.toLowerCase() === 'invoice' || h.toLowerCase() === 'no' || h.toLowerCase() === 'nomor');
 
   const result: ProductPerformance[] = [];
 
@@ -353,6 +357,8 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
     let pIdx = priceIdx;
     let bIdx = brandIdx;
     let dIdx = dateIdx;
+    let qIdx = qtyIdx;
+    let nomIdx = nomerIdx;
 
     if (hasLeadingEmpty && row.length === headers.length - 1) {
       if (sIdx > 0) sIdx--;
@@ -362,20 +368,23 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
       if (pIdx > 0) pIdx--;
       if (bIdx > 0) bIdx--;
       if (dIdx > 0) dIdx--;
+      if (qIdx > 0) qIdx--;
+      if (nomIdx > 0) nomIdx--;
     }
 
     // Extract values with safe fallbacks
-    const sku = (row[sIdx] || row[4] || '').trim();
+    const sku = (row[sIdx] || row[3] || '').trim();
     if (!sku || sku.toLowerCase() === 'code' || sku.toLowerCase() === 'sku' || sku.toLowerCase() === 'barcode') continue;
 
-    const category = (row[cIdx] || row[7] || '').trim() || 'Uncategorized';
-    const name = (row[nIdx] || row[6] || '').trim() || 'Produk Tanpa Nama';
-    const unit = (row[uIdx] || row[10] || 'PCS').trim();
-    const price = parseNumber(row[pIdx] || row[11] || '0');
-    const rawDate = (row[dIdx] || row[1] || '').trim();
+    const category = (row[cIdx] || row[6] || '').trim() || 'Uncategorized';
+    const name = (row[nIdx] || row[5] || '').trim() || 'Produk Tanpa Nama';
+    const unit = (row[uIdx] || row[9] || 'PCS').trim();
+    const qty = parseNumber(row[qIdx] || row[8] || '1');
+    const price = parseNumber(row[pIdx] || row[10] || '0');
+    const rawDate = (row[dIdx] || row[0] || '').trim();
     const parsedDate = parseIndonesianDate(rawDate) || '2026-01-01';
     
-    let brand = (row[bIdx] || row[8] || '').trim();
+    let brand = (row[bIdx] || row[7] || '').trim();
     if (!brand || brand === '#N/A' || brand.toLowerCase() === 'n/a' || brand === '') {
       brand = 'No Brand';
     }
@@ -384,9 +393,9 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
       sku,
       category,
       name,
-      totalQty: 1, // Single transaction occurrence counts as 1 qty
+      totalQty: qty, // Use parsed Qty from Column 10
       unit,
-      totalSales: price, // Single transaction sales is its price (Harga)
+      totalSales: price * qty, // Calculate correct line-item Sales as Price * Qty
       brand,
       date: parsedDate
     });

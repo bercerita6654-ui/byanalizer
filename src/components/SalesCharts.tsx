@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { motion } from 'motion/react';
 import { DailySales, ChartTab } from '../types';
 import { formatRupiahCompact, formatNumberIndo, formatRupiah } from '../utils';
 import { 
@@ -513,7 +514,13 @@ export default function SalesCharts({ salesData }: SalesChartsProps) {
         </div>
 
         {/* Right Columns: Target Performance Analytics (Interactive KPI block) */}
-        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t lg:border-t-0 lg:border-l border-indigo-100/60 pt-4 lg:pt-0 lg:pl-5">
+        <motion.div 
+          key={"kpis-" + targetSales + "-" + salesData.length}
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.3 }}
+          className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t lg:border-t-0 lg:border-l border-indigo-100/60 pt-4 lg:pt-0 lg:pl-5"
+        >
           
           {/* KPI 1: Days Exceeded count */}
           <div className="bg-white/60 p-4 rounded-xl border border-slate-100/80 flex flex-col justify-between">
@@ -575,12 +582,18 @@ export default function SalesCharts({ salesData }: SalesChartsProps) {
             </p>
           </div>
 
-        </div>
+        </motion.div>
 
       </div>
 
       {/* Main Chart Area */}
-      <div className="h-[400px] w-full relative">
+      <motion.div 
+        key={"chart-" + activeTab + "-" + timeScale + "-" + salesData.length + "-" + (salesData[0]?.date || '')}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: 'easeOut' }}
+        className="h-[400px] w-full relative"
+      >
         {aggregatedData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
             {/* Conditional Render Based on Tab */}
@@ -751,7 +764,7 @@ export default function SalesCharts({ salesData }: SalesChartsProps) {
             Belum ada data visualisasi yang dapat ditampilkan.
           </div>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }

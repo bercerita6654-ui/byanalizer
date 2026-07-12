@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { DailySales } from '../types';
 import { formatRupiah, formatNumberIndo, formatDateIndo } from '../utils';
 import { 
@@ -453,29 +454,38 @@ export default function SalesTable({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-600">
-                {paginatedData.map((row) => (
-                  <tr key={row.date} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4.5 font-bold text-slate-800">
-                      <span className="text-[10px] bg-slate-100 text-slate-500 font-extrabold px-2 py-0.5 rounded mr-2 uppercase">{row.dayOfWeek}</span>
-                      {row.date}
-                    </td>
-                    <td className="px-6 py-4.5 text-right font-black text-indigo-600 font-mono">
-                      {formatRupiah(row.totalAll)}
-                    </td>
-                    <td className="px-6 py-4.5 text-right font-bold text-slate-800">
-                      {formatNumberIndo(row.txAll)} <span className="text-[10px] text-slate-400 font-medium">Tx</span>
-                    </td>
-                    <td className="px-6 py-4.5 text-right font-bold text-emerald-600 font-mono">
-                      {formatRupiah(row.totalInstan)}
-                    </td>
-                    <td className="px-6 py-4.5 text-right font-bold text-blue-600 font-mono">
-                      {formatRupiah(row.totalReguler)}
-                    </td>
-                    <td className="px-6 py-4.5 text-right font-bold text-amber-600 font-mono">
-                      {formatRupiah(row.totalManual)}
-                    </td>
-                  </tr>
-                ))}
+                <AnimatePresence mode="popLayout">
+                  {paginatedData.map((row, index) => (
+                    <motion.tr 
+                      key={row.date} 
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.25, delay: Math.min(index * 0.015, 0.15), ease: "easeOut" }}
+                      className="hover:bg-slate-50/50 transition-colors"
+                    >
+                      <td className="px-6 py-4.5 font-bold text-slate-800">
+                        <span className="text-[10px] bg-slate-100 text-slate-500 font-extrabold px-2 py-0.5 rounded mr-2 uppercase">{row.dayOfWeek}</span>
+                        {row.date}
+                      </td>
+                      <td className="px-6 py-4.5 text-right font-black text-indigo-600 font-mono">
+                        {formatRupiah(row.totalAll)}
+                      </td>
+                      <td className="px-6 py-4.5 text-right font-bold text-slate-800">
+                        {formatNumberIndo(row.txAll)} <span className="text-[10px] text-slate-400 font-medium">Tx</span>
+                      </td>
+                      <td className="px-6 py-4.5 text-right font-bold text-emerald-600 font-mono">
+                        {formatRupiah(row.totalInstan)}
+                      </td>
+                      <td className="px-6 py-4.5 text-right font-bold text-blue-600 font-mono">
+                        {formatRupiah(row.totalReguler)}
+                      </td>
+                      <td className="px-6 py-4.5 text-right font-bold text-amber-600 font-mono">
+                        {formatRupiah(row.totalManual)}
+                      </td>
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
               </tbody>
             </table>
           </div>

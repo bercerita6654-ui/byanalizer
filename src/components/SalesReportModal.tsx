@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { DailySales, MarketingEvent } from '../types';
-import { formatRupiah, formatNumberIndo, formatDateIndo } from '../utils';
+import { DailySales, MarketingEvent, ProductPerformance } from '../types';
+import { formatRupiah, formatNumberIndo, formatDateIndo, parseProductPerformanceCSV } from '../utils';
+import { getProductsCache, setProductsCache } from '../dbCache';
 import { Download, CheckCircle2, X, Calendar, FileText, Check } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -67,6 +68,72 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
 
     return Array.from(monthsMap.values()).sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
   }, [salesData]);
+
+  // Tab/Report type state
+  const [reportType, setReportType] = useState<'monthly' | 'daily'>('monthly');
+
+  // Selected single date state
+  const [selectedDailyDate, setSelectedDailyDate] = useState<string>('');
+
+  // Loaded products data state
+  const [allProducts, setAllProducts] = useState<ProductPerformance[]>([]);
+  const [isProductsLoading, setIsProductsLoading] = useState<boolean>(false);
+
+  // Available single dates
+  const availableDates = useMemo(() => {
+    return [...salesData].map(day => day.date).sort((a, b) => b.localeCompare(a));
+  }, [salesData]);
+
+  // Lazy fetch products when modal is open
+  const fetchProductsForDailySummary = async () => {
+    if (allProducts.length > 0) return;
+    setIsProductsLoading(true);
+    const url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=68677243&single=true&output=csv';
+    try {
+      // Coba ambil dari cache terlebih dahulu
+      const cached = await getProductsCache(url);
+      if (cached && cached.length > 0) {
+        setAllProducts(cached);
+        setIsProductsLoading(false);
+        return;
+      }
+
+      const response = await fetch(url);
+      if (response.ok) {
+        const text = await response.text();
+        const parsed = parseProductPerformanceCSV(text);
+        setAllProducts(parsed);
+        await setProductsCache(url, parsed);
+      }
+    } catch (error) {
+      console.error('Gagal mengambil data produk untuk ringkasan harian:', error);
+    } finally {
+      setIsProductsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchProductsForDailySummary();
+    }
+  }, [isOpen]);
+
+  // Set default selected date to latest date in dataset
+  useEffect(() => {
+    if (isOpen && availableDates.length > 0 && !selectedDailyDate) {
+      setSelectedDailyDate(availableDates[0]);
+    }
+  }, [isOpen, availableDates, selectedDailyDate]);
+
+  // Date selection options with summary amounts
+  const dateOptions = useMemo(() => {
+    return availableDates.map(date => {
+      const salesObj = salesData.find(d => d.date === date);
+      const label = `${salesObj ? salesObj.dayOfWeek : ''}, ${formatDateIndo(date)}`;
+      const amount = salesObj ? formatRupiah(salesObj.totalAll) : '';
+      return { date, label, amount };
+    });
+  }, [availableDates, salesData]);
 
   // Selected month state
   const [selectedMonth, setSelectedMonth] = useState<string>('');
@@ -898,6 +965,284 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     }
   };
 
+  // Generate Daily Executive Summary PDF
+  const executeDailyPDFDownload = async (dateStr: string) => {
+    try {
+      setIsExporting(true);
+      setExportStep('Mempersiapkan data ringkasan harian...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      const dailySalesObj = salesData.find(d => d.date === dateStr);
+      if (!dailySalesObj) {
+        console.error('Data harian tidak ditemukan untuk: ' + dateStr);
+        setIsExporting(false);
+        return;
+      }
+
+      // Filter products for this day
+      const dailyProducts = allProducts
+        .filter(p => p.date === dateStr)
+        .sort((a, b) => b.totalSales - a.totalSales); // Best-selling first
+
+      const formattedDateFull = formatDateIndo(dateStr);
+      const fileName = `Ringkasan_Eksekutif_Harian_${dateStr}.pdf`;
+
+      const doc = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+
+      // 1. Corporate Header Section
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(15, 23, 42); // Slate 900
+      doc.text('RINGKASAN EKSEKUTIF PENJUALAN HARIAN', 14, 18);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(79, 70, 229); // Indigo 600
+      const dateText = `HARI & TANGGAL: ${dailySalesObj.dayOfWeek.toUpperCase()}, ${formattedDateFull.toUpperCase()}`;
+      doc.text(dateText, 14, 24);
+
+      doc.setDrawColor(226, 232, 240); // Slate 200
+      doc.setLineWidth(0.5);
+      doc.line(14, 27, 196, 27);
+
+      // Section Title: KPI Utama
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42); // Slate 900
+      doc.text('I. METRIK KINERJA UTAMA (KEY PERFORMANCE INDICATORS)', 14, 34);
+
+      // Draw 3 KPI boxes helper
+      const drawKPIBox = (x: number, y: number, w: number, h: number, title: string, value: string, subtext: string, valueColor = [15, 23, 42]) => {
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+
+        // Title
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text(title.toUpperCase(), x + 3, y + 4.5);
+
+        // Value
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(valueColor[0], valueColor[1], valueColor[2]);
+        doc.text(value, x + 3, y + 10.5);
+
+        // Subtext
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6);
+        doc.setTextColor(148, 163, 184);
+        doc.text(subtext, x + 3, y + 15.5);
+      };
+
+      const kpiW = 58;
+      const kpiH = 19;
+      const gap = 4;
+      const aov = dailySalesObj.txAll > 0 ? dailySalesObj.totalAll / dailySalesObj.txAll : 0;
+
+      drawKPIBox(14, 38, kpiW, kpiH, 'Total Omzet Harian', formatRupiah(dailySalesObj.totalAll), 'Akumulasi omzet kotor hari ini', [79, 70, 229]);
+      drawKPIBox(14 + kpiW + gap, 38, kpiW, kpiH, 'Volume Transaksi', `${formatNumberIndo(dailySalesObj.txAll)} Transaksi`, `Berdasarkan total order sukses`, [15, 23, 42]);
+      drawKPIBox(14 + 2 * (kpiW + gap), 38, kpiW, kpiH, 'Rata-rata Keranjang (AOV)', formatRupiah(Math.round(aov)), 'Nilai rata-rata per transaksi', [244, 63, 94]);
+
+      // Draw Holiday / Marketing Events (if any)
+      const holidayMap: Record<string, string> = {
+        '2026-03-29': 'Nyepi',
+        '2026-04-01': 'Galungan',
+        '2026-04-11': 'Kuningan',
+        '2026-06-01': 'Hari Lahir Pancasila',
+        '2026-06-10': 'Galungan',
+        '2026-06-20': 'Kuningan'
+      };
+      
+      const isHoliday = holidayMap[dateStr];
+      const dayEvents = events.filter(e => e.date === dateStr);
+      const eventText = dayEvents.map(e => e.title).join(', ');
+
+      let nextY = 62;
+      if (isHoliday || eventText) {
+        doc.setFillColor(254, 243, 199); // amber 100
+        doc.setDrawColor(253, 230, 138); // amber 200
+        doc.setLineWidth(0.3);
+        doc.roundedRect(14, nextY, 182, 10, 1.5, 1.5, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(146, 64, 14); // amber 800
+        
+        let contextMsg = '💡 Keterangan Hari Ini: ';
+        if (isHoliday) contextMsg += `[Libur Nasional: ${isHoliday}] `;
+        if (eventText) contextMsg += `[Event Aktif: ${eventText}]`;
+        
+        doc.text(contextMsg, 17, nextY + 6);
+        nextY += 14;
+      } else {
+        nextY += 1;
+      }
+
+      // Section Title: Channel Penjualan
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42); // Slate 900
+      doc.text('II. KINERJA SALES CHANNEL (CHANNEL BREAKDOWN)', 14, nextY);
+      nextY += 4;
+
+      // Table for Channel Breakdown
+      const channelHeaders = [['Nama Channel', 'Total Transaksi', 'Transaksi Share (%)', 'Total Omzet (Rp)', 'Omzet Share (%)']];
+      
+      const totalAllTx = dailySalesObj.txAll || 1;
+      const totalAllSales = dailySalesObj.totalAll || 1;
+
+      const channelRows = [
+        [
+          'Instan (Gojek / Grab / ShopeeFood)', 
+          `${dailySalesObj.txInstan} Tx`, 
+          `${((dailySalesObj.txInstan / totalAllTx) * 100).toFixed(1)}%`, 
+          formatRupiah(dailySalesObj.totalInstan), 
+          `${((dailySalesObj.totalInstan / totalAllSales) * 100).toFixed(1)}%`
+        ],
+        [
+          'Reguler (Website / Aplikasi / Marketplaces)', 
+          `${dailySalesObj.txReguler} Tx`, 
+          `${((dailySalesObj.txReguler / totalAllTx) * 100).toFixed(1)}%`, 
+          formatRupiah(dailySalesObj.totalReguler), 
+          `${((dailySalesObj.totalReguler / totalAllSales) * 100).toFixed(1)}%`
+        ],
+        [
+          'Manual (Admin WhatsApp / Kasir Toko)', 
+          `${dailySalesObj.txManual} Tx`, 
+          `${((dailySalesObj.txManual / totalAllTx) * 100).toFixed(1)}%`, 
+          formatRupiah(dailySalesObj.totalManual), 
+          `${((dailySalesObj.totalManual / totalAllSales) * 100).toFixed(1)}%`
+        ],
+        [
+          'TOTAL AKUMULASI', 
+          `${dailySalesObj.txAll} Tx`, 
+          '100%', 
+          formatRupiah(dailySalesObj.totalAll), 
+          '100%'
+        ]
+      ];
+
+      autoTable(doc, {
+        head: channelHeaders,
+        body: channelRows,
+        startY: nextY,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          fontSize: 7.5,
+          fontStyle: 'bold'
+        },
+        columnStyles: {
+          0: { cellWidth: 70, fontStyle: 'bold' },
+          1: { halign: 'right' },
+          2: { halign: 'right' },
+          3: { halign: 'right', fontStyle: 'bold' },
+          4: { halign: 'right' }
+        },
+        styles: {
+          fontSize: 7,
+          cellPadding: 1.8
+        },
+        didParseCell: function(cellData) {
+          if (cellData.section === 'body' && cellData.row.index === 3) {
+            cellData.cell.styles.fontStyle = 'bold';
+            cellData.cell.styles.fillColor = [241, 245, 249]; // light gray background for total row
+          }
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      // Get next Y position after the table
+      nextY = (doc as any).lastAutoTable.finalY + 8;
+
+      // Section Title: Best Selling Products
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42); // Slate 900
+      doc.text('III. RINCIAN PERFORMA PRODUK TERLARIS (BEST-SELLING PRODUCTS)', 14, nextY);
+      nextY += 4;
+
+      if (dailyProducts.length === 0) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Tidak ada data rincian transaksi produk spesifik untuk tanggal ini.', 14, nextY);
+      } else {
+        const productHeaders = [['Rank', 'SKU', 'Nama Produk', 'Merk', 'Kategori', 'Qty Terjual', 'Omzet Penjualan', 'Harga Rerata']];
+        const productRows = dailyProducts.slice(0, 10).map((p, index) => {
+          const unitPrice = p.totalQty > 0 ? Math.round(p.totalSales / p.totalQty) : 0;
+          return [
+            `#${index + 1}`,
+            p.sku,
+            p.name,
+            p.brand,
+            p.category,
+            `${p.totalQty} ${p.unit || 'pcs'}`,
+            formatRupiah(p.totalSales),
+            `${formatRupiah(unitPrice)}`
+          ];
+        });
+
+        autoTable(doc, {
+          head: productHeaders,
+          body: productRows,
+          startY: nextY,
+          theme: 'striped',
+          headStyles: {
+            fillColor: [79, 70, 229], // Indigo 600
+            textColor: [255, 255, 255],
+            fontSize: 7.5,
+            fontStyle: 'bold'
+          },
+          columnStyles: {
+            0: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+            1: { cellWidth: 20, fontStyle: 'bold' },
+            2: { cellWidth: 50 },
+            3: { cellWidth: 20 },
+            4: { cellWidth: 22 },
+            5: { cellWidth: 18, halign: 'right', fontStyle: 'bold' },
+            6: { cellWidth: 24, halign: 'right', fontStyle: 'bold', textColor: [79, 70, 229] },
+            7: { cellWidth: 18, halign: 'right' }
+          },
+          styles: {
+            fontSize: 6.8,
+            cellPadding: 1.8
+          },
+          margin: { left: 14, right: 14, bottom: 20 }
+        });
+      }
+
+      // Add Running Footers to Page(s)
+      const totalPages = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        
+        doc.text(`Ringkasan Eksekutif Harian - Tanggal ${formattedDateFull}`, 14, 287);
+        const pageStr = `Halaman ${i} dari ${totalPages}`;
+        doc.text(pageStr, doc.internal.pageSize.width - 14 - doc.getTextWidth(pageStr), 287);
+      }
+
+      setExportStep(`Mengunduh PDF Ringkasan Harian...`);
+      doc.save(fileName);
+    } catch (err) {
+      console.error('Gagal membuat ringkasan PDF harian:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Start download sequentially for chosen months
   const handleStartDownload = async () => {
     if (selectedMonths.length === 0) return;
@@ -944,8 +1289,12 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide leading-none">Unduh Laporan Kinerja Bulanan</h3>
-              <p className="text-[10px] text-slate-400 font-bold mt-1">Pilih periode bulan evaluasi untuk diekspor ke PDF</p>
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide leading-none">
+                {reportType === 'monthly' ? 'Unduh Laporan Kinerja Bulanan' : 'Unduh Ringkasan Eksekutif Harian'}
+              </h3>
+              <p className="text-[10px] text-slate-400 font-bold mt-1">
+                {reportType === 'monthly' ? 'Pilih periode bulan evaluasi untuk diekspor ke PDF' : 'Pilih tanggal harian spesifik untuk diekspor ke PDF'}
+              </p>
             </div>
           </div>
           
@@ -958,6 +1307,32 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             </button>
           )}
         </div>
+
+        {/* Tab Switcher */}
+        {!isExporting && (
+          <div className="flex border-b border-slate-100 bg-slate-50/50 p-1">
+            <button
+              onClick={() => setReportType('monthly')}
+              className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                reportType === 'monthly'
+                  ? 'bg-white text-indigo-600 shadow-sm border border-slate-100'
+                  : 'text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              📊 Laporan Bulanan
+            </button>
+            <button
+              onClick={() => setReportType('daily')}
+              className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                reportType === 'daily'
+                  ? 'bg-white text-indigo-600 shadow-sm border border-slate-100'
+                  : 'text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              📅 Ringkasan Harian
+            </button>
+          </div>
+        )}
 
         {isExporting ? (
           /* Progress State View */
@@ -972,7 +1347,7 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             <div className="space-y-2 max-w-xs">
               <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Mengekspor Laporan PDF...</h4>
               <p className="text-[10.5px] font-semibold text-slate-500 leading-normal">
-                Harap tunggu, laporan bulanan sedang dikonversi ke format PDF secara berurutan.
+                Harap tunggu, data laporan sedang dikonversi ke format PDF secara berkualitas tinggi.
               </p>
             </div>
 
@@ -981,7 +1356,9 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
               <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-400 tracking-wider">
                 <span>Progress Ekspor</span>
                 <span className="text-indigo-600 font-bold">
-                  {activeExportIndex >= 0 ? `${activeExportIndex + 1} / ${selectedMonths.length} Laporan` : 'Memulai...'}
+                  {reportType === 'monthly' 
+                    ? (activeExportIndex >= 0 ? `${activeExportIndex + 1} / ${selectedMonths.length} Laporan` : 'Memulai...')
+                    : '1 / 1 Laporan'}
                 </span>
               </div>
 
@@ -989,7 +1366,11 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                 <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-indigo-600 rounded-full transition-all duration-300"
-                    style={{ width: `${selectedMonths.length > 0 ? ((activeExportIndex + 1) / selectedMonths.length) * 100 : 0}%` }}
+                    style={{ 
+                      width: reportType === 'monthly' 
+                        ? `${selectedMonths.length > 0 ? ((activeExportIndex + 1) / selectedMonths.length) * 100 : 0}%`
+                        : '100%'
+                    }}
                   />
                 </div>
                 <p className="text-[10.5px] font-bold text-slate-600 animate-pulse truncate leading-tight">
@@ -1007,102 +1388,175 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           /* Selection Form View */
           <>
             <div className="p-6 flex-1 overflow-y-auto space-y-4">
-              
-              {/* Quick info panel */}
-              <div className="bg-amber-50 border border-amber-200/40 p-4 rounded-2xl flex gap-3 text-[11px] font-semibold text-amber-800 leading-normal">
-                <div className="mt-0.5 shrink-0">
-                  <span className="inline-flex items-center justify-center w-5 h-5 bg-amber-100 text-amber-700 rounded-full font-bold">!</span>
-                </div>
-                <p>
-                  Sistem mendeteksi <strong className="text-amber-950">{availableMonths.length} bulan</strong> data penjualan. Pilih bulan yang ingin Anda unduh secara bersamaan. Laporan akan diunduh secara berurutan.
-                </p>
-              </div>
+              {reportType === 'monthly' ? (
+                <>
+                  {/* Quick info panel */}
+                  <div className="bg-amber-50 border border-amber-200/40 p-4 rounded-2xl flex gap-3 text-[11px] font-semibold text-amber-800 leading-normal">
+                    <div className="mt-0.5 shrink-0">
+                      <span className="inline-flex items-center justify-center w-5 h-5 bg-amber-100 text-amber-700 rounded-full font-bold">!</span>
+                    </div>
+                    <p>
+                      Sistem mendeteksi <strong className="text-amber-950">{availableMonths.length} bulan</strong> data penjualan. Pilih bulan yang ingin Anda unduh secara bersamaan. Laporan akan diunduh secara berurutan.
+                    </p>
+                  </div>
 
-              {/* Selection Actions (Select All, Clear) */}
-              <div className="flex items-center justify-between pb-1 text-[11px] font-bold">
-                <span className="text-slate-400 uppercase tracking-wider">Daftar Bulan Tersedia</span>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedMonths(availableMonths.map(m => m.yearMonth))}
-                    className="text-indigo-600 hover:text-indigo-800 transition-colors uppercase tracking-wider"
-                  >
-                    Pilih Semua
-                  </button>
-                  <span className="text-slate-200">|</span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedMonths([])}
-                    className="text-rose-600 hover:text-rose-800 transition-colors uppercase tracking-wider"
-                  >
-                    Batalkan Pilihan
-                  </button>
-                </div>
-              </div>
+                  {/* Selection Actions (Select All, Clear) */}
+                  <div className="flex items-center justify-between pb-1 text-[11px] font-bold">
+                    <span className="text-slate-400 uppercase tracking-wider">Daftar Bulan Tersedia</span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMonths(availableMonths.map(m => m.yearMonth))}
+                        className="text-indigo-600 hover:text-indigo-800 transition-colors uppercase tracking-wider"
+                      >
+                        Pilih Semua
+                      </button>
+                      <span className="text-slate-200">|</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMonths([])}
+                        className="text-rose-600 hover:text-rose-800 transition-colors uppercase tracking-wider"
+                      >
+                        Batalkan Pilihan
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Month List */}
-              <div className="space-y-2 border border-slate-100 rounded-2xl p-2 max-h-[35vh] overflow-y-auto bg-slate-50/50">
-                {availableMonths.map(month => {
-                  const isChecked = selectedMonths.includes(month.yearMonth);
-                  
-                  // Target status indicator based on sales thresholds
-                  const isGold = month.totalSales >= 800000000;
-                  const isSilver = month.totalSales >= 700000000;
-                  const isBronze = month.totalSales >= 600000000;
-                  
-                  const targetLabel = isGold ? '🥇 Gold' : isSilver ? '🥈 Silver' : isBronze ? '🥉 Bronze' : '❌ No Level';
-                  const targetColor = isGold 
-                    ? 'bg-amber-50 text-amber-700 border-amber-200/60' 
-                    : isSilver 
-                    ? 'bg-slate-100 text-slate-700 border-slate-200/60' 
-                    : isBronze 
-                    ? 'bg-amber-100 text-amber-800 border-amber-200/60' 
-                    : 'bg-rose-50 text-rose-600 border-rose-100';
+                  {/* Month List */}
+                  <div className="space-y-2 border border-slate-100 rounded-2xl p-2 max-h-[35vh] overflow-y-auto bg-slate-50/50">
+                    {availableMonths.map(month => {
+                      const isChecked = selectedMonths.includes(month.yearMonth);
+                      
+                      // Target status indicator based on sales thresholds
+                      const isGold = month.totalSales >= 800000000;
+                      const isSilver = month.totalSales >= 700000000;
+                      const isBronze = month.totalSales >= 600000000;
+                      
+                      const targetLabel = isGold ? '🥇 Gold' : isSilver ? '🥈 Silver' : isBronze ? '🥉 Bronze' : '❌ No Level';
+                      const targetColor = isGold 
+                        ? 'bg-amber-50 text-amber-700 border-amber-200/60' 
+                        : isSilver 
+                        ? 'bg-slate-100 text-slate-700 border-slate-200/60' 
+                        : isBronze 
+                        ? 'bg-amber-100 text-amber-800 border-amber-200/60' 
+                        : 'bg-rose-50 text-rose-600 border-rose-100';
 
-                  return (
-                    <button
-                      key={month.yearMonth}
-                      type="button"
-                      onClick={() => {
-                        if (isChecked) {
-                          setSelectedMonths(prev => prev.filter(m => m !== month.yearMonth));
-                        } else {
-                          setSelectedMonths(prev => [...prev, month.yearMonth]);
-                        }
-                      }}
-                      className={`w-full flex items-center justify-between p-3.5 rounded-xl border transition-all text-left group ${
-                        isChecked 
-                          ? 'bg-white border-indigo-200 shadow-sm' 
-                          : 'bg-transparent border-transparent hover:bg-slate-100/50'
-                      }`}
+                      return (
+                        <button
+                          key={month.yearMonth}
+                          type="button"
+                          onClick={() => {
+                            if (isChecked) {
+                              setSelectedMonths(prev => prev.filter(m => m !== month.yearMonth));
+                            } else {
+                              setSelectedMonths(prev => [...prev, month.yearMonth]);
+                            }
+                          }}
+                          className={`w-full flex items-center justify-between p-3.5 rounded-xl border transition-all text-left group ${
+                            isChecked 
+                              ? 'bg-white border-indigo-200 shadow-sm' 
+                              : 'bg-transparent border-transparent hover:bg-slate-100/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`p-1 rounded-md border transition-all ${
+                              isChecked 
+                                ? 'bg-indigo-600 border-indigo-600 text-white' 
+                                : 'bg-white border-slate-200 text-transparent group-hover:border-slate-300'
+                            }`}>
+                              <Check className="w-3.5 h-3.5 stroke-[3.5]" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-extrabold text-slate-800">{month.label}</p>
+                              <p className="text-[10px] font-bold text-slate-400 mt-0.5">{formatRupiah(month.totalSales)}</p>
+                            </div>
+                          </div>
+
+                          <span className={`text-[9px] font-extrabold uppercase px-2.5 py-1 rounded-lg border ${targetColor}`}>
+                            {targetLabel}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  {/* Info Panel */}
+                  <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl flex gap-3 text-[11px] font-semibold text-indigo-800 leading-normal">
+                    <div className="mt-0.5 shrink-0">
+                      <span className="inline-flex items-center justify-center w-5 h-5 bg-indigo-100 text-indigo-700 rounded-full font-bold">💡</span>
+                    </div>
+                    <p>
+                      Unduh ringkasan eksekutif harian berformat PDF satu halaman. Laporan ini merangkum omzet harian, rincian penjualan per channel, event aktif, dan rincian produk terlaris di tanggal terpilih.
+                    </p>
+                  </div>
+
+                  {/* Date Dropdown Select */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Pilih Tanggal Laporan</label>
+                    <select
+                      value={selectedDailyDate}
+                      onChange={(e) => setSelectedDailyDate(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-xs font-bold"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className={`p-1 rounded-md border transition-all ${
-                          isChecked 
-                            ? 'bg-indigo-600 border-indigo-600 text-white' 
-                            : 'bg-white border-slate-200 text-transparent group-hover:border-slate-300'
-                        }`}>
-                          <Check className="w-3.5 h-3.5 stroke-[3.5]" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-extrabold text-slate-800">{month.label}</p>
-                          <p className="text-[10px] font-bold text-slate-400 mt-0.5">{formatRupiah(month.totalSales)}</p>
-                        </div>
-                      </div>
+                      {dateOptions.map(opt => (
+                        <option key={opt.date} value={opt.date}>
+                          {opt.label} — {opt.amount}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                      <span className={`text-[9px] font-extrabold uppercase px-2.5 py-1 rounded-lg border ${targetColor}`}>
-                        {targetLabel}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                  {/* Summary Preview of Selected Day */}
+                  {selectedDailyDate && (
+                    <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/40 space-y-3">
+                      <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">Pratinjau Data Terpilih</span>
+                      
+                      {(() => {
+                        const dayData = salesData.find(d => d.date === selectedDailyDate);
+                        const dayProductsCount = allProducts.filter(p => p.date === selectedDailyDate).length;
+                        if (!dayData) return null;
+                        return (
+                          <div className="grid grid-cols-2 gap-4 text-xs">
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 font-bold block">Total Omzet:</span>
+                              <span className="font-mono font-extrabold text-indigo-600 text-sm">{formatRupiah(dayData.totalAll)}</span>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 font-bold block">Total Transaksi:</span>
+                              <span className="font-mono font-extrabold text-slate-800 text-sm">{dayData.txAll} Transaksi</span>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 font-bold block">Kinerja Channel:</span>
+                              <span className="text-slate-600 font-bold text-[10.5px] block truncate">
+                                Instan: {((dayData.totalInstan / (dayData.totalAll || 1)) * 100).toFixed(0)}% • 
+                                Reguler: {((dayData.totalReguler / (dayData.totalAll || 1)) * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 font-bold block">Produk Terlaris:</span>
+                              <span className="text-emerald-600 font-extrabold text-[11px] block">
+                                {isProductsLoading ? 'Memuat data...' : `${dayProductsCount} jenis produk terjual`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Footer buttons */}
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
               <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                Terpilih: <strong className="text-indigo-600 font-extrabold">{selectedMonths.length} Bulan</strong>
+                {reportType === 'monthly' ? (
+                  <>Terpilih: <strong className="text-indigo-600 font-extrabold">{selectedMonths.length} Bulan</strong></>
+                ) : (
+                  <>Metrik Harian: <strong className="text-indigo-600 font-extrabold">1 Hari Kerja</strong></>
+                )}
               </span>
 
               <div className="flex items-center gap-2.5">
@@ -1115,12 +1569,18 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                 </button>
                 <button
                   type="button"
-                  onClick={handleStartDownload}
-                  disabled={selectedMonths.length === 0}
+                  onClick={() => {
+                    if (reportType === 'monthly') {
+                      handleStartDownload();
+                    } else {
+                      executeDailyPDFDownload(selectedDailyDate);
+                    }
+                  }}
+                  disabled={reportType === 'monthly' ? selectedMonths.length === 0 : !selectedDailyDate || isProductsLoading}
                   className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 hover:scale-[1.01]"
                 >
                   <Download className="w-4 h-4 text-white" />
-                  Mulai Unduh
+                  {isProductsLoading ? 'Memuat Produk...' : 'Mulai Unduh'}
                 </button>
               </div>
             </div>

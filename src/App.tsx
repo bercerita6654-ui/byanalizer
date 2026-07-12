@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { DailySales, MarketingEvent, ViewTab } from './types';
 import { parseDailySalesCSV, generateSampleMarketingEvents, formatDateIndo, formatRupiah, formatNumberIndo } from './utils';
+import { getSalesCache, setSalesCache } from './dbCache';
 import SalesSummary from './components/SalesSummary';
 import SalesMoM from './components/SalesMoM';
 import SalesCharts from './components/SalesCharts';
@@ -20,10 +21,164 @@ import {
   TrendingUp, Calendar, Table, Target, BarChart2, 
   RefreshCw, Link as LinkIcon, HelpCircle, CheckCircle2, 
   Sparkles, FileSpreadsheet, PlusCircle, AlertCircle, FileText,
-  Package, Download
+  Package, Download, X
 } from 'lucide-react';
 
+
 const DEFAULT_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=21254849&single=true&output=csv';
+
+function oklchToRgb(oklchStr: string): string {
+  const regex = /oklch\(\s*([\d.]+%?)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)/i;
+  const match = oklchStr.match(regex);
+  if (!match) return oklchStr;
+
+  const lStr = match[1];
+  const cStr = match[2];
+  const hStr = match[3];
+  const aStr = match[4];
+
+  const L = lStr.endsWith('%') ? parseFloat(lStr) / 100 : parseFloat(lStr);
+  const C = parseFloat(cStr);
+  const H = parseFloat(hStr);
+  const A = aStr ? (aStr.endsWith('%') ? parseFloat(aStr) / 100 : parseFloat(aStr)) : 1;
+
+  const hRad = (H * Math.PI) / 180;
+  const a = C * Math.cos(hRad);
+  const b = C * Math.sin(hRad);
+
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+
+  const r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const b_val = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+
+  const gamma = (x: number) => {
+    return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+  };
+
+  const R = Math.round(Math.max(0, Math.min(1, gamma(r))) * 255);
+  const G = Math.round(Math.max(0, Math.min(1, gamma(g))) * 255);
+  const B = Math.round(Math.max(0, Math.min(1, gamma(b_val))) * 255);
+
+  if (A < 1) {
+    return `rgba(${R}, ${G}, ${B}, ${A})`;
+  }
+  return `rgb(${R}, ${G}, ${B})`;
+}
+
+function oklabToRgb(oklabStr: string): string {
+  const regex = /oklab\(\s*([\d.]+%?)\s+([+-]?[\d.]+)\s+([+-]?[\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)/i;
+  const match = oklabStr.match(regex);
+  if (!match) return oklabStr;
+
+  const lStr = match[1];
+  const aStr = match[2];
+  const bStr = match[3];
+  const alphaStr = match[4];
+
+  const L = lStr.endsWith('%') ? parseFloat(lStr) / 100 : parseFloat(lStr);
+  const a = parseFloat(aStr);
+  const b = parseFloat(bStr);
+  const A = alphaStr ? (alphaStr.endsWith('%') ? parseFloat(alphaStr) / 100 : parseFloat(alphaStr)) : 1;
+
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+
+  const r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const b_val = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+
+  const gamma = (x: number) => {
+    return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+  };
+
+  const R = Math.round(Math.max(0, Math.min(1, gamma(r))) * 255);
+  const G = Math.round(Math.max(0, Math.min(1, gamma(g))) * 255);
+  const B = Math.round(Math.max(0, Math.min(1, gamma(b_val))) * 255);
+
+  if (A < 1) {
+    return `rgba(${R}, ${G}, ${B}, ${A})`;
+  }
+  return `rgb(${R}, ${G}, ${B})`;
+}
+
+function patchGetComputedStyle(): () => void {
+  const originalGetComputedStyle = window.getComputedStyle;
+  (window as any).getComputedStyle = function(el: Element, pseudo?: string | null) {
+    const style = originalGetComputedStyle(el, pseudo);
+    return new Proxy(style, {
+      get(target, prop, receiver) {
+        if (prop === 'getPropertyValue') {
+          return function(propertyName: string) {
+            let val = target.getPropertyValue(propertyName);
+            if (typeof val === 'string') {
+              if (val.includes('oklch(')) {
+                val = val.replace(/oklch\([^)]+\)/g, (match) => oklchToRgb(match));
+              }
+              if (val.includes('oklab(')) {
+                val = val.replace(/oklab\([^)]+\)/g, (match) => oklabToRgb(match));
+              }
+            }
+            return val;
+          };
+        }
+        let val = Reflect.get(target, prop);
+        if (typeof val === 'function') {
+          return val.bind(target);
+        }
+        if (typeof val === 'string') {
+          if (val.includes('oklch(')) {
+            val = val.replace(/oklch\([^)]+\)/g, (match) => oklchToRgb(match));
+          }
+          if (val.includes('oklab(')) {
+            val = val.replace(/oklab\([^)]+\)/g, (match) => oklabToRgb(match));
+          }
+        }
+        return val;
+      }
+    }) as any;
+  };
+  return () => {
+    window.getComputedStyle = originalGetComputedStyle;
+  };
+}
+
+function patchStyleSheets(): () => void {
+  const originalStyleSheets = document.styleSheets;
+  try {
+    Object.defineProperty(document, 'styleSheets', {
+      get() {
+        return [];
+      },
+      configurable: true
+    });
+  } catch (e) {
+    console.warn("Failed to patch document.styleSheets", e);
+  }
+  return () => {
+    try {
+      Object.defineProperty(document, 'styleSheets', {
+        get() {
+          return originalStyleSheets;
+        },
+        configurable: true
+      });
+    } catch (e) {
+      console.warn("Failed to restore document.styleSheets", e);
+    }
+  };
+}
 
 export default function App() {
   const [csvUrl, setCsvUrl] = useState<string>(() => {
@@ -33,6 +188,7 @@ export default function App() {
   const [salesData, setSalesData] = useState<DailySales[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isError, setIsError] = useState<string | null>(null);
+  const [isUsingCache, setIsUsingCache] = useState<boolean>(false);
   
   const [activeTab, setActiveTab] = useState<ViewTab>('dashboard');
   
@@ -55,6 +211,17 @@ export default function App() {
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
 
+  // PDF download date filters modal state
+  const [isPdfDownloadModalOpen, setIsPdfDownloadModalOpen] = useState<boolean>(false);
+  const [pdfStartDate, setPdfStartDate] = useState<string>('');
+  const [pdfEndDate, setPdfEndDate] = useState<string>('');
+
+  const handleOpenPdfDownloadModal = () => {
+    setPdfStartDate(filterStartDate || dateRangeBounds.min);
+    setPdfEndDate(filterEndDate || dateRangeBounds.max);
+    setIsPdfDownloadModalOpen(true);
+  };
+
   // Toast notifications state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -71,10 +238,23 @@ export default function App() {
   };
 
   // Fetch data from CSV Google Sheet
-  const fetchData = async (urlToFetch: string) => {
+  const fetchData = async (urlToFetch: string, forceNetwork: boolean = false) => {
     setIsLoading(true);
     setIsError(null);
     try {
+      if (!forceNetwork) {
+        // Cek data di IndexedDB terlebih dahulu untuk loading instan
+        const cachedData = await getSalesCache(urlToFetch);
+        if (cachedData && cachedData.length > 0) {
+          setSalesData(cachedData);
+          setIsUsingCache(true);
+          setIsLoading(false);
+          showToast("Data penjualan dimuat instan dari cache lokal!", "success");
+          return;
+        }
+      }
+
+      // Tarik data baru dari Google Sheets
       const response = await fetch(urlToFetch);
       if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
       const text = await response.text();
@@ -85,6 +265,8 @@ export default function App() {
       }
       
       setSalesData(parsed);
+      await setSalesCache(urlToFetch, parsed);
+      setIsUsingCache(false);
       localStorage.setItem('sales_csv_url', urlToFetch);
       showToast("Data penjualan berhasil disinkronkan!", "success");
     } catch (err: any) {
@@ -103,13 +285,13 @@ export default function App() {
 
   const handleSync = async () => {
     setIsSyncing(true);
-    await fetchData(csvUrl);
+    await fetchData(csvUrl, true);
     setIsSyncing(false);
   };
 
   const handleResetDefaultUrl = () => {
     setCsvUrl(DEFAULT_CSV_URL);
-    fetchData(DEFAULT_CSV_URL);
+    fetchData(DEFAULT_CSV_URL, true);
   };
 
   // Manage events operations
@@ -191,10 +373,33 @@ export default function App() {
   const [isDownloadingDashboard, setIsDownloadingDashboard] = useState<boolean>(false);
   const [downloadStep, setDownloadStep] = useState<string>('');
 
-  const handleDownloadDashboardSummary = async () => {
+  const handleDownloadDashboardSummary = async (selectedStart?: string, selectedEnd?: string) => {
     setIsDownloadingDashboard(true);
     setDownloadStep('Mempersiapkan visualisasi...');
+    
+    let restoreStyleSheets: (() => void) | null = null;
+    let restoreGetComputedStyle: (() => void) | null = null;
+
+    const originalStartDate = filterStartDate;
+    const originalEndDate = filterEndDate;
+
     try {
+      // Determine temporary dates to apply
+      const tempStart = selectedStart !== undefined ? selectedStart : filterStartDate;
+      const tempEnd = selectedEnd !== undefined ? selectedEnd : filterEndDate;
+
+      // Temporarily apply filters for charts and heatmap elements on screen
+      setFilterStartDate(tempStart);
+      setFilterEndDate(tempEnd);
+
+      setDownloadStep('Memproses saringan tanggal...');
+      // Give React and browser render cycle time to paint the updated components
+      await new Promise(resolve => setTimeout(resolve, 400));
+
+      // Patch stylesheets and computed styles to handle OKLCH colors safely
+      restoreStyleSheets = patchStyleSheets();
+      restoreGetComputedStyle = patchGetComputedStyle();
+
       const chartsElement = document.getElementById('sales-charts-section');
       const heatmapElement = document.getElementById('sales-heatmap-section');
 
@@ -225,8 +430,8 @@ export default function App() {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
       doc.setTextColor(224, 231, 255);
-      const rangeText = filterStartDate && filterEndDate 
-        ? `Periode: ${formatDateIndo(filterStartDate)} s/d ${formatDateIndo(filterEndDate)}`
+      const rangeText = tempStart && tempEnd 
+        ? `Periode: ${formatDateIndo(tempStart)} s/d ${formatDateIndo(tempEnd)}`
         : 'Periode: Semua Data Historis';
       doc.text(`${rangeText}  |  Dibuat pada: ${formatDateIndo(new Date().toISOString().substring(0, 10))}`, margin, 26);
 
@@ -256,9 +461,16 @@ export default function App() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(79, 70, 229);
-      const totalOmzetVal = filterSummary ? filterSummary.totalOmzet : 0;
-      const totalTxVal = filterSummary ? filterSummary.totalTx : 0;
-      const dayCountVal = filterSummary ? filterSummary.dayCount : 0;
+      
+      // Calculate local summary on the fly to prevent stale closure snapshots
+      const pdfFilteredData = salesData.filter(day => {
+        if (tempStart && day.date < tempStart) return false;
+        if (tempEnd && day.date > tempEnd) return false;
+        return true;
+      });
+      const totalOmzetVal = pdfFilteredData.reduce((sum, d) => sum + d.totalAll, 0);
+      const totalTxVal = pdfFilteredData.reduce((sum, d) => sum + d.txAll, 0);
+      const dayCountVal = pdfFilteredData.length;
       
       doc.text(formatRupiah(totalOmzetVal), margin + 6, currentY + 13);
       
@@ -354,7 +566,7 @@ export default function App() {
       doc.setTextColor(148, 163, 184);
       doc.text('Halaman 2 dari 2', pdfWidth / 2, pdfHeight - 10, { align: 'center' });
 
-      const filterRangeName = filterStartDate && filterEndDate ? `_${filterStartDate}_to_${filterEndDate}` : '';
+      const filterRangeName = tempStart && tempEnd ? `_${tempStart}_to_${tempEnd}` : '';
       doc.save(`Ringkasan_Dashboard${filterRangeName}.pdf`);
 
       showToast('Berhasil mengunduh ringkasan PDF!', 'success');
@@ -362,6 +574,10 @@ export default function App() {
       console.error(err);
       showToast(err.message || 'Gagal mengunduh ringkasan PDF.', 'error');
     } finally {
+      if (restoreStyleSheets) restoreStyleSheets();
+      if (restoreGetComputedStyle) restoreGetComputedStyle();
+      setFilterStartDate(originalStartDate);
+      setFilterEndDate(originalEndDate);
       setIsDownloadingDashboard(false);
       setDownloadStep('');
     }
@@ -427,6 +643,20 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-black tracking-tight text-slate-900 leading-none">by-analyzer</h1>
                 <span className="text-[9px] bg-indigo-50 text-indigo-700 font-extrabold px-2 py-0.5 rounded border border-indigo-100/50 uppercase tracking-wider">v2.0</span>
+                {isUsingCache ? (
+                  <span className="text-[9px] bg-amber-50/80 text-amber-800 border border-amber-200/50 font-extrabold px-2.5 py-0.5 rounded-lg uppercase tracking-wider flex items-center gap-1 shadow-sm animate-pulse">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+                    </span>
+                    ⚡ Cache Lokal
+                  </span>
+                ) : (
+                  <span className="text-[9px] bg-emerald-50/80 text-emerald-800 border border-emerald-200/50 font-extrabold px-2.5 py-0.5 rounded-lg uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                    🟢 Live Sheet
+                  </span>
+                )}
               </div>
               <p className="text-[10px] text-slate-400 font-bold mt-1">Aplikasi Analisa &amp; Pemantau Penjualan Harian</p>
             </div>
@@ -752,7 +982,7 @@ export default function App() {
                     </button>
                     
                     <button
-                      onClick={handleDownloadDashboardSummary}
+                      onClick={handleOpenPdfDownloadModal}
                       disabled={isDownloadingDashboard}
                       className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold uppercase tracking-widest px-5 py-3 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-100 cursor-pointer disabled:bg-indigo-400 disabled:cursor-not-allowed"
                     >
@@ -868,6 +1098,209 @@ export default function App() {
         salesData={salesData}
         events={events}
       />
+
+      {/* PDF Download Date Filter Modal */}
+      {isPdfDownloadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200/80 overflow-hidden flex flex-col"
+          >
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 leading-none">Filter Tanggal Laporan</h3>
+                  <p className="text-[10px] text-slate-400 font-bold mt-1">Saring rentang tanggal untuk PDF</p>
+                </div>
+              </div>
+              
+              <button 
+                onClick={() => setIsPdfDownloadModalOpen(false)} 
+                className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-700 transition-all border border-slate-200/50 bg-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-4">
+              <div className="p-3.5 bg-indigo-50/50 border border-indigo-100/30 rounded-2xl">
+                <p className="text-[11px] text-indigo-800 leading-relaxed font-semibold">
+                  Tentukan rentang tanggal data yang ingin disertakan ke dalam laporan PDF ringkasan dashboard ini.
+                </p>
+              </div>
+
+              {/* Date Input Fields */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Dari Tanggal</label>
+                  <input
+                    type="date"
+                    value={pdfStartDate}
+                    min={dateRangeBounds.min}
+                    max={dateRangeBounds.max}
+                    onChange={e => setPdfStartDate(e.target.value)}
+                    className="w-full text-xs font-semibold px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sampai Tanggal</label>
+                  <input
+                    type="date"
+                    value={pdfEndDate}
+                    min={dateRangeBounds.min}
+                    max={dateRangeBounds.max}
+                    onChange={e => setPdfEndDate(e.target.value)}
+                    className="w-full text-xs font-semibold px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                  />
+                </div>
+              </div>
+
+              {/* Quick Presets inside Modal */}
+              <div className="space-y-2 pt-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Preset Cepat:</span>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPdfStartDate('');
+                      setPdfEndDate('');
+                    }}
+                    className={`px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border text-center transition-all ${
+                      !pdfStartDate && !pdfEndDate
+                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                        : 'bg-slate-50 border-slate-200/60 text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Semua Data
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (salesData.length > 0) {
+                        const maxDateStr = salesData[salesData.length - 1].date;
+                        const maxDate = new Date(maxDateStr);
+                        const startDateObj = new Date(maxDate);
+                        startDateObj.setDate(startDateObj.getDate() - 6);
+                        setPdfStartDate(startDateObj.toISOString().substring(0, 10));
+                        setPdfEndDate(maxDateStr);
+                      }
+                    }}
+                    className="px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-slate-50 border-slate-200/60 text-slate-500 hover:text-slate-800 text-center transition-all"
+                  >
+                    7 Hari
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (salesData.length > 0) {
+                        const maxDateStr = salesData[salesData.length - 1].date;
+                        const maxDate = new Date(maxDateStr);
+                        const startDateObj = new Date(maxDate);
+                        startDateObj.setDate(startDateObj.getDate() - 29);
+                        setPdfStartDate(startDateObj.toISOString().substring(0, 10));
+                        setPdfEndDate(maxDateStr);
+                      }
+                    }}
+                    className="px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-slate-50 border-slate-200/60 text-slate-500 hover:text-slate-800 text-center transition-all"
+                  >
+                    30 Hari
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (salesData.length > 0) {
+                        const maxDateStr = salesData[salesData.length - 1].date;
+                        const maxParts = maxDateStr.split('-');
+                        setPdfStartDate(`${maxParts[0]}-${maxParts[1]}-01`);
+                        setPdfEndDate(maxDateStr);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-slate-50 border-slate-200/60 text-slate-500 hover:text-slate-800 text-center transition-all"
+                  >
+                    Bulan Berakhir
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPdfStartDate(filterStartDate || dateRangeBounds.min);
+                      setPdfEndDate(filterEndDate || dateRangeBounds.max);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-slate-50 border-slate-200/60 text-slate-500 hover:text-slate-800 text-center transition-all"
+                    title="Salin rentang tanggal dari filter halaman utama"
+                  >
+                    Salin Filter Utama
+                  </button>
+                </div>
+              </div>
+
+              {/* Boundary Error Alert */}
+              {pdfStartDate && pdfEndDate && pdfStartDate > pdfEndDate && (
+                <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-[10.5px] font-bold">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Tanggal Mulai tidak boleh setelah Tanggal Selesai.</span>
+                </div>
+              )}
+            </div>
+
+            {/* Footer buttons */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsPdfDownloadModalOpen(false)}
+                className="px-4 py-2.5 border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-700 transition-colors bg-white shadow-sm"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPdfDownloadModalOpen(false);
+                  handleDownloadDashboardSummary(pdfStartDate, pdfEndDate);
+                }}
+                disabled={!!(pdfStartDate && pdfEndDate && pdfStartDate > pdfEndDate)}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 hover:scale-[1.01]"
+              >
+                <Download className="w-4 h-4 text-white" />
+                Unduh PDF
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* PDF Download Loading Overlay */}
+      {isDownloadingDashboard && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-md text-white p-6 text-center animate-fade-in">
+          <div className="bg-slate-950/80 border border-slate-800/60 rounded-3xl p-8 max-w-sm w-full shadow-2xl flex flex-col items-center gap-5">
+            <div className="p-4 bg-indigo-600/10 text-indigo-400 rounded-2xl border border-indigo-500/20 shadow-inner">
+              <RefreshCw className="w-8 h-8 animate-spin" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-slate-100">Sedang Membuat PDF...</h3>
+              <p className="text-xs text-slate-400 font-semibold mt-2 leading-relaxed">
+                {downloadStep || 'Silakan tunggu beberapa saat.'}
+              </p>
+            </div>
+            <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+              <div className="bg-indigo-500 h-1.5 rounded-full animate-pulse w-full"></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer copyright */}
       <footer className="bg-white border-t border-slate-200/80 px-6 py-6 text-center text-xs text-slate-400 font-semibold mt-auto">

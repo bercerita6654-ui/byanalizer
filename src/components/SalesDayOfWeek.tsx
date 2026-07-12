@@ -174,81 +174,148 @@ export default function SalesDayOfWeek({ salesData }: SalesDayOfWeekProps) {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
-        <div className="bg-slate-900 border border-slate-800 text-white p-4.5 rounded-2xl shadow-xl space-y-2 text-xs min-w-[240px]">
-          <div className="border-b border-slate-800 pb-2 mb-2">
-            <p className="font-black text-slate-300 text-[11px] uppercase tracking-wider">
-              Hari: <span className="text-white">{label}</span>
-            </p>
-            <p className="text-[9px] text-slate-400 font-bold mt-0.5">
-              Dihitung dari {data.occurrences} hari {label} historis
+        <div className="bg-slate-950/95 backdrop-blur-md border border-slate-800 text-white p-4.5 rounded-2xl shadow-2xl space-y-3 text-xs min-w-[280px] max-w-sm">
+          {/* Header */}
+          <div className="border-b border-slate-800/80 pb-2 flex flex-col gap-1">
+            <div className="flex justify-between items-center">
+              <span className="font-black text-slate-400 uppercase tracking-widest text-[9.5px]">
+                📊 Analisa Hari Kerja
+              </span>
+              <span className="font-mono text-slate-300 font-bold bg-indigo-950/60 border border-indigo-900/50 px-2.5 py-0.5 rounded-md text-[10px]">
+                Hari {label}
+              </span>
+            </div>
+            <p className="text-[9.5px] text-slate-400 font-bold">
+              Berdasarkan <span className="text-white">{data.occurrences} hari</span> {label} dalam histori data
             </p>
           </div>
 
+          {/* Revenue Metric */}
           {selectedMetric === 'revenue' && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center gap-4">
-                <span className="font-bold text-slate-400">Rata-rata Omzet:</span>
-                <span className="font-mono text-emerald-400 font-black">{formatRupiah(data.avgRevenue)}</span>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded-xl border border-slate-800/40">
+                <span className="font-bold text-slate-400">Rerata Omzet Harian:</span>
+                <span className="font-mono text-emerald-400 font-black text-sm">{formatRupiah(data.avgRevenue)}</span>
               </div>
-              <div className="flex justify-between items-center gap-4 text-[11px]">
-                <span className="font-bold text-slate-400">Total Omzet Keseluruhan:</span>
-                <span className="font-mono text-slate-300">{formatRupiahCompact(data.totalAll)}</span>
+              <div className="flex justify-between items-center text-[11px] px-1 pt-1">
+                <span className="font-semibold text-slate-500">Total Akumulasi {label}:</span>
+                <span className="font-mono text-slate-300 font-bold">{formatRupiah(data.totalAll)}</span>
               </div>
             </div>
           )}
 
+          {/* Transactions Metric */}
           {selectedMetric === 'transactions' && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center gap-4">
-                <span className="font-bold text-slate-400">Rata-rata Transaksi:</span>
-                <span className="font-mono text-blue-400 font-black">{data.avgTransactions} Tx</span>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded-xl border border-slate-800/40">
+                <span className="font-bold text-slate-400">Rerata Transaksi:</span>
+                <span className="font-mono text-blue-400 font-black text-sm">{data.avgTransactions} Tx</span>
               </div>
-              <div className="flex justify-between items-center gap-4 text-[11px]">
-                <span className="font-bold text-slate-400">Total Transaksi Keseluruhan:</span>
-                <span className="font-mono text-slate-300">{formatNumberIndo(data.txAll)} Tx</span>
+              
+              {/* Transaction channel breakdown */}
+              <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
+                <div className="text-[10px] font-black uppercase text-slate-500 pb-0.5">Kontribusi Transaksi:</div>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="font-bold flex items-center gap-1.5 text-slate-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Instan
+                  </span>
+                  <span className="font-mono text-slate-300">
+                    {data.txInstan} Tx ({data.txAll > 0 ? ((data.txInstan / data.txAll) * 100).toFixed(1) : 0}%)
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="font-bold flex items-center gap-1.5 text-slate-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    Reguler
+                  </span>
+                  <span className="font-mono text-slate-300">
+                    {data.txReguler} Tx ({data.txAll > 0 ? ((data.txReguler / data.txAll) * 100).toFixed(1) : 0}%)
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="font-bold flex items-center gap-1.5 text-slate-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    Manual
+                  </span>
+                  <span className="font-mono text-slate-300">
+                    {data.txManual} Tx ({data.txAll > 0 ? ((data.txManual / data.txAll) * 100).toFixed(1) : 0}%)
+                  </span>
+                </div>
+              </div>
+              
+              <div className="flex justify-between items-center text-[11px] pt-1.5 border-t border-slate-800">
+                <span className="font-semibold text-slate-500">Total Transaksi Historis:</span>
+                <span className="font-mono text-slate-300 font-bold">{formatNumberIndo(data.txAll)} Tx</span>
               </div>
             </div>
           )}
 
+          {/* AOV Metric */}
           {selectedMetric === 'aov' && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center gap-4">
-                <span className="font-bold text-slate-400">Rata-rata Keranjang (AOV):</span>
-                <span className="font-mono text-rose-400 font-black">{formatRupiah(data.aov)}</span>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded-xl border border-slate-800/40">
+                <span className="font-bold text-slate-400">Rerata Keranjang (AOV):</span>
+                <span className="font-mono text-rose-400 font-black text-sm">{formatRupiah(data.aov)}</span>
+              </div>
+              <div className="p-2 bg-slate-900 rounded-xl border border-slate-800/50 text-[10px] text-slate-400 leading-relaxed">
+                💡 Pelanggan yang berbelanja pada hari <strong className="text-white">{label}</strong> rata-rata membelanjakan <strong className="text-rose-300">{formatRupiah(data.aov)}</strong> per struk belanja.
               </div>
             </div>
           )}
 
+          {/* Channels Metric */}
           {selectedMetric === 'channels' && (
             <div className="space-y-2">
-              <div className="flex justify-between items-center gap-4 text-[11px] font-black border-b border-slate-800/60 pb-1 text-slate-400">
-                <span>Rata-rata per Channel:</span>
-                <span>Nilai (Rp)</span>
+              <div className="text-[10px] font-black uppercase text-slate-400 border-b border-slate-800/60 pb-1 flex justify-between">
+                <span>Rerata per Channel</span>
+                <span>Nilai &amp; Kontribusi</span>
               </div>
-              <div className="flex justify-between items-center gap-4">
-                <span className="font-bold flex items-center gap-1.5 text-emerald-400">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  Instan:
-                </span>
-                <span className="font-mono text-slate-200">{formatRupiahCompact(data.avgInstan)}</span>
+              
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center gap-4 text-[11px]">
+                  <span className="font-bold flex items-center gap-1.5 text-slate-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    Instan
+                  </span>
+                  <div className="flex items-center gap-2 font-mono">
+                    <span className="text-slate-300 font-bold">{formatRupiah(data.avgInstan)}</span>
+                    <span className="text-[10px] font-extrabold bg-slate-800/60 px-1.5 py-0.5 rounded text-indigo-300">
+                      {data.avgRevenue > 0 ? ((data.avgInstan / data.avgRevenue) * 100).toFixed(1) : 0}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center gap-4 text-[11px]">
+                  <span className="font-bold flex items-center gap-1.5 text-slate-300">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                    Reguler
+                  </span>
+                  <div className="flex items-center gap-2 font-mono">
+                    <span className="text-slate-300 font-bold">{formatRupiah(data.avgReguler)}</span>
+                    <span className="text-[10px] font-extrabold bg-slate-800/60 px-1.5 py-0.5 rounded text-indigo-300">
+                      {data.avgRevenue > 0 ? ((data.avgReguler / data.avgRevenue) * 100).toFixed(1) : 0}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center gap-4 text-[11px]">
+                  <span className="font-bold flex items-center gap-1.5 text-slate-300">
+                    <span className="w-2 h-2 rounded-full bg-f59e0b" style={{ backgroundColor: '#f59e0b' }} />
+                    Manual
+                  </span>
+                  <div className="flex items-center gap-2 font-mono">
+                    <span className="text-slate-300 font-bold">{formatRupiah(data.avgManual)}</span>
+                    <span className="text-[10px] font-extrabold bg-slate-800/60 px-1.5 py-0.5 rounded text-indigo-300">
+                      {data.avgRevenue > 0 ? ((data.avgManual / data.avgRevenue) * 100).toFixed(1) : 0}%
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between items-center gap-4">
-                <span className="font-bold flex items-center gap-1.5 text-blue-400">
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
-                  Reguler:
-                </span>
-                <span className="font-mono text-slate-200">{formatRupiahCompact(data.avgReguler)}</span>
-              </div>
-              <div className="flex justify-between items-center gap-4">
-                <span className="font-bold flex items-center gap-1.5 text-amber-400">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
-                  Manual:
-                </span>
-                <span className="font-mono text-slate-200">{formatRupiahCompact(data.avgManual)}</span>
-              </div>
-              <div className="border-t border-slate-800 pt-1.5 mt-1.5 flex justify-between items-center text-[11px] font-black">
-                <span className="text-slate-400">Total Omzet Harian:</span>
-                <span className="font-mono text-white">{formatRupiahCompact(data.avgRevenue)}</span>
+
+              <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-[11px] font-black">
+                <span className="text-slate-400">Total Rerata Harian:</span>
+                <span className="font-mono text-emerald-400 text-xs">{formatRupiah(data.avgRevenue)}</span>
               </div>
             </div>
           )}

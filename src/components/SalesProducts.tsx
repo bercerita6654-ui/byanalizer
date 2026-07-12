@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ProductPerformance } from '../types';
 import { parseProductPerformanceCSV, formatRupiah, formatNumberIndo, formatRupiahCompact } from '../utils';
+import { getProductsCache, setProductsCache } from '../dbCache';
 import { 
   Package, Search, Filter, ArrowUpDown, Tag, Compass, 
   TrendingUp, BarChart2, DollarSign, Flame, FolderOpen, 
@@ -124,11 +125,25 @@ export default function SalesProducts() {
     return `${year}-${month}`;
   });
 
+  const [isUsingCache, setIsUsingCache] = useState<boolean>(false);
+
   // Fetch product CSV data
-  const fetchProductData = async () => {
+  const fetchProductData = async (forceNetwork: boolean = false) => {
     setIsLoading(true);
     setIsError(null);
     try {
+      if (forceNetwork === false || (typeof forceNetwork !== 'boolean')) {
+        // Cek data di IndexedDB terlebih dahulu untuk loading instan
+        const cachedData = await getProductsCache(PRODUCTS_CSV_URL);
+        if (cachedData && cachedData.length > 0) {
+          setProducts(cachedData);
+          setIsUsingCache(true);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // Tarik data baru dari Google Sheets
       const response = await fetch(PRODUCTS_CSV_URL);
       if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
       const text = await response.text();
@@ -137,6 +152,8 @@ export default function SalesProducts() {
         throw new Error('Gagal memproses data produk atau format kolom tidak sesuai.');
       }
       setProducts(parsed);
+      await setProductsCache(PRODUCTS_CSV_URL, parsed);
+      setIsUsingCache(false);
     } catch (err: any) {
       console.error(err);
       setIsError(err.message || 'Gagal memuat data produk. Pastikan koneksi internet aktif.');
@@ -146,7 +163,7 @@ export default function SalesProducts() {
   };
 
   useEffect(() => {
-    fetchProductData();
+    fetchProductData(false);
   }, []);
 
   // Get all unique days from the dataset
@@ -233,6 +250,39 @@ export default function SalesProducts() {
       };
     });
   }, [selectedTrendProductSku, productTrendMap]);
+
+  const productTrendTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length && selectedTrendProduct) {
+      const data = payload[0].payload;
+      const avgPrice = data.qty > 0 ? Math.round(data.sales / data.qty) : 0;
+      return (
+        <div className="bg-slate-950/95 backdrop-blur-md text-white p-4 rounded-2xl border border-slate-800 shadow-2xl space-y-2.5 text-xs min-w-[240px]">
+          <div className="border-b border-slate-800/80 pb-1.5">
+            <span className="font-black text-slate-400 uppercase tracking-widest text-[9px] block mb-0.5">📈 Tren Penjualan</span>
+            <span className="font-mono text-slate-300 font-bold bg-slate-800 px-2 py-0.5 rounded text-[10px]">
+              {data.formattedDate}
+            </span>
+          </div>
+          
+          <div className="space-y-1.5 font-mono text-[11px]">
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-slate-400">Volume Terjual:</span>
+              <span className="font-black text-indigo-400">{formatNumberIndo(data.qty)} {selectedTrendProduct.unit}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-slate-400">Omzet Harian:</span>
+              <span className="font-black text-emerald-400">{formatRupiah(data.sales)}</span>
+            </div>
+            <div className="flex justify-between items-center border-t border-slate-900/60 pt-1">
+              <span className="font-semibold text-slate-500">Rerata Harga Jual:</span>
+              <span className="font-black text-slate-300">{formatRupiah(avgPrice)}/{selectedTrendProduct.unit}</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   // Dynamic aggregation based on date period filters
   const aggregatedProducts = useMemo(() => {
@@ -401,12 +451,16 @@ export default function SalesProducts() {
   const chartTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload as ProductPerformance;
+      const averageUnitPrice = data.totalQty > 0 ? Math.round(data.totalSales / data.totalQty) : 0;
       return (
-        <div className="bg-slate-900/95 backdrop-blur-md text-white p-4 rounded-2xl border border-slate-800 shadow-2xl space-y-2 max-w-sm text-xs">
-          <p className="font-black text-slate-200 border-b border-slate-800/80 pb-1.5 leading-snug">
-            {data.name}
-          </p>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono">
+        <div className="bg-slate-950/95 backdrop-blur-md text-white p-4.5 rounded-2xl border border-slate-800 shadow-2xl space-y-3 max-w-sm text-xs">
+          <div className="border-b border-slate-800/80 pb-2">
+            <span className="font-black text-slate-400 uppercase tracking-widest text-[9px] block mb-1">📦 Detail Produk</span>
+            <p className="font-black text-slate-200 leading-snug">
+              {data.name}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 font-mono">
             <span className="text-slate-400 font-bold">SKU:</span>
             <span className="text-right font-black text-indigo-400">{data.sku}</span>
             <span className="text-slate-400 font-bold">Merk:</span>
@@ -417,6 +471,8 @@ export default function SalesProducts() {
             <span className="text-right font-black text-emerald-400">{formatNumberIndo(data.totalQty)} {data.unit}</span>
             <span className="text-slate-400 font-bold">Omzet:</span>
             <span className="text-right font-black text-indigo-400">{formatRupiah(data.totalSales)}</span>
+            <span className="text-slate-500 font-semibold text-[10.5px] border-t border-slate-900/60 pt-1">Rerata Harga:</span>
+            <span className="text-right font-black text-slate-300 text-[10.5px] border-t border-slate-900/60 pt-1">{formatRupiah(averageUnitPrice)}</span>
           </div>
         </div>
       );
@@ -444,18 +500,24 @@ export default function SalesProducts() {
       const data = payload[0].payload;
       const totalRevenue = stats?.totalRevenue || 0;
       const pct = totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0;
+      const avgBrandPrice = data.qty > 0 ? Math.round(data.revenue / data.qty) : 0;
       return (
-        <div className="bg-slate-900/95 backdrop-blur-md text-white p-3.5 rounded-2xl border border-slate-800 shadow-2xl space-y-1.5 font-sans text-xs">
-          <p className="font-black text-slate-200 border-b border-slate-800/80 pb-1 leading-snug">
-            {data.name}
-          </p>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono">
+        <div className="bg-slate-950/95 backdrop-blur-md text-white p-4 rounded-2xl border border-slate-800 shadow-2xl space-y-2.5 font-sans text-xs min-w-[220px]">
+          <div className="border-b border-slate-800/80 pb-1.5">
+            <span className="font-black text-slate-400 uppercase tracking-widest text-[9px] block mb-0.5">🏷️ Detail Merk</span>
+            <p className="font-black text-slate-200 leading-snug">
+              {data.name}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 font-mono">
             <span className="text-slate-400 font-bold">Terjual:</span>
             <span className="text-right font-black text-emerald-400">{formatNumberIndo(data.qty)} pcs</span>
             <span className="text-slate-400 font-bold">Omzet:</span>
             <span className="text-right font-black text-indigo-400">{formatRupiah(data.revenue)}</span>
             <span className="text-slate-400 font-bold">Dominasi:</span>
             <span className="text-right font-black text-pink-400">{pct.toFixed(1)}%</span>
+            <span className="text-slate-500 font-semibold text-[10.5px] border-t border-slate-900/60 pt-1">Rerata Nilai:</span>
+            <span className="text-right font-black text-slate-300 text-[10.5px] border-t border-slate-900/60 pt-1">{formatRupiah(avgBrandPrice)}/pc</span>
           </div>
         </div>
       );
@@ -563,6 +625,39 @@ export default function SalesProducts() {
       sales: salesTrend[idx]
     }));
   }, [selectedCategoryDetail, products, productTrendMap]);
+
+  const categoryTrendTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length && selectedCategoryDetail) {
+      const data = payload[0].payload;
+      const avgPrice = data.qty > 0 ? Math.round(data.sales / data.qty) : 0;
+      return (
+        <div className="bg-slate-950/95 backdrop-blur-md text-white p-4 rounded-2xl border border-slate-800 shadow-2xl space-y-2.5 text-xs min-w-[240px]">
+          <div className="border-b border-slate-800/80 pb-1.5">
+            <span className="font-black text-slate-400 uppercase tracking-widest text-[9px] block mb-0.5">📈 Tren Kategori</span>
+            <span className="font-mono text-slate-300 font-bold bg-slate-800 px-2 py-0.5 rounded text-[10px]">
+              {data.formattedDate}
+            </span>
+          </div>
+          
+          <div className="space-y-1.5 font-mono text-[11px]">
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-slate-400">Volume Terjual:</span>
+              <span className="font-black text-indigo-400">{formatNumberIndo(data.qty)} pcs</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-slate-400">Omzet Harian:</span>
+              <span className="font-black text-emerald-400">{formatRupiah(data.sales)}</span>
+            </div>
+            <div className="flex justify-between items-center border-t border-slate-900/60 pt-1">
+              <span className="font-semibold text-slate-500">Rerata Harga:</span>
+              <span className="font-black text-slate-300">{formatRupiah(avgPrice)}/pc</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   // Products belonging to the selected category, aggregated and sorted by sales
   const selectedCategoryProducts = useMemo(() => {
@@ -705,6 +800,66 @@ export default function SalesProducts() {
       };
     });
   }, [comparisonDates, products, selectedCompProductASku, selectedCompProductBSku]);
+
+  const comparisonTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length && selectedCompProductA && selectedCompProductB) {
+      const data = payload[0].payload;
+      const isSales = compMetric === 'sales';
+      const valA = isSales ? data.salesA : data.qtyA;
+      const valB = isSales ? data.salesB : data.qtyB;
+      
+      const diffVal = valA - valB;
+      const diffPct = valB > 0 ? (diffVal / valB) * 100 : 0;
+      
+      return (
+        <div className="bg-slate-950/95 backdrop-blur-md text-white p-4 rounded-2xl border border-slate-800 shadow-2xl space-y-3 text-xs min-w-[280px]">
+          <div className="border-b border-slate-800/80 pb-2">
+            <span className="font-black text-slate-400 uppercase tracking-widest text-[9px] block mb-0.5">⚔️ Perbandingan Produk</span>
+            <span className="font-mono text-slate-300 font-bold bg-slate-800 px-2 py-0.5 rounded text-[10px]">
+              {data.formattedDate}
+            </span>
+          </div>
+          
+          <div className="space-y-2">
+            <div className="flex justify-between items-center gap-4 text-[11px]">
+              <span className="font-bold flex items-center gap-1.5 text-indigo-400">
+                <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                [A] {selectedCompProductA.sku}:
+              </span>
+              <span className="font-mono font-bold text-slate-200">
+                {isSales ? formatRupiah(data.salesA) : `${formatNumberIndo(data.qtyA)} ${selectedCompProductA.unit || 'unit'}`}
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center gap-4 text-[11px]">
+              <span className="font-bold flex items-center gap-1.5 text-emerald-400">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                [B] {selectedCompProductB.sku}:
+              </span>
+              <span className="font-mono font-bold text-slate-200">
+                {isSales ? formatRupiah(data.salesB) : `${formatNumberIndo(data.qtyB)} ${selectedCompProductB.unit || 'unit'}`}
+              </span>
+            </div>
+          </div>
+          
+          <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-[10.5px]">
+            <span className="font-bold text-slate-400">Selisih (A vs B):</span>
+            <div className="font-mono font-black text-right">
+              <span className={diffVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                {diffVal >= 0 ? '+' : ''}{isSales ? formatRupiah(diffVal) : `${formatNumberIndo(diffVal)} unit`}
+              </span>
+              {valB > 0 && (
+                <span className={`text-[9.5px] ml-1.5 px-1.5 py-0.5 rounded font-extrabold ${diffVal >= 0 ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-900/50' : 'bg-rose-950/80 text-rose-400 border border-rose-900/50'}`}>
+                  {diffVal >= 0 ? '+' : ''}{diffPct.toFixed(1)}%
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   // Automatically select top 2 bestselling products as defaults
   useEffect(() => {
@@ -1013,7 +1168,23 @@ export default function SalesProducts() {
             <Package className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-800 uppercase tracking-wide leading-none">Analisa Performa Produk</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-black text-slate-800 uppercase tracking-wide leading-none">Analisa Performa Produk</h2>
+              {isUsingCache ? (
+                <span className="text-[9px] bg-amber-50/85 text-amber-800 border border-amber-200/50 font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider flex items-center gap-1 shadow-sm animate-pulse">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+                  </span>
+                  ⚡ Cache Lokal
+                </span>
+              ) : (
+                <span className="text-[9px] bg-emerald-50/85 text-emerald-800 border border-emerald-200/50 font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                  🟢 Live Sheet
+                </span>
+              )}
+            </div>
             <p className="text-[11px] text-slate-400 font-bold mt-1.5">Menganalisa data omzet dan volume penjualan per SKU secara detail</p>
           </div>
         </div>
@@ -1029,7 +1200,7 @@ export default function SalesProducts() {
           </button>
 
           <button
-            onClick={fetchProductData}
+            onClick={() => fetchProductData(true)}
             disabled={isLoading}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-200/50 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer"
           >
@@ -1060,7 +1231,7 @@ export default function SalesProducts() {
           </div>
           
           <button
-            onClick={fetchProductData}
+            onClick={() => fetchProductData(true)}
             className="text-xs font-black uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-700 px-6 py-3 rounded-xl shadow-sm transition-all"
           >
             Coba Sinkronkan Ulang
@@ -1800,14 +1971,7 @@ export default function SalesProducts() {
                             tickLine={false} 
                             tickFormatter={(v) => compMetric === 'sales' ? formatRupiahCompact(v) : formatNumberIndo(v)}
                           />
-                          <Tooltip 
-                            formatter={(value, name) => {
-                              const label = name === 'A' ? `[A] ${selectedCompProductA.sku}` : `[B] ${selectedCompProductB.sku}`;
-                              if (compMetric === 'sales') return [formatRupiah(value as number), label];
-                              return [`${value} unit`, label];
-                            }}
-                            contentStyle={{ background: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '10px' }}
-                          />
+                          <Tooltip content={comparisonTooltip} />
                           <Legend 
                             verticalAlign="top" 
                             height={36} 
@@ -2345,13 +2509,7 @@ export default function SalesProducts() {
                           offset: 10
                         }} 
                       />
-                      <Tooltip 
-                        formatter={(value, name) => {
-                          if (name === 'sales') return [formatRupiah(value as number), 'Omzet'];
-                          return [`${value} ${selectedTrendProduct.unit}`, 'Volume'];
-                        }}
-                        contentStyle={{ background: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '10px' }}
-                      />
+                      <Tooltip content={productTrendTooltip} />
                       <Legend 
                         verticalAlign="top" 
                         height={36} 
@@ -2528,13 +2686,7 @@ export default function SalesProducts() {
                           offset: 10
                         }} 
                       />
-                      <Tooltip 
-                        formatter={(value, name) => {
-                          if (name === 'sales') return [formatRupiah(value as number), 'Omzet'];
-                          return [`${value} pcs`, 'Volume'];
-                        }}
-                        contentStyle={{ background: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '10px' }}
-                      />
+                      <Tooltip content={categoryTrendTooltip} />
                       <Legend 
                         verticalAlign="top" 
                         height={36} 

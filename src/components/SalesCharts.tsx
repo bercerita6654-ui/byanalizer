@@ -177,36 +177,146 @@ export default function SalesCharts({ salesData }: SalesChartsProps) {
         ? activeHolidays.find(h => h.label === label) 
         : null;
 
+      // Sum values for percentage contribution and totals
+      const totalSum = payload.reduce((sum: number, entry: any) => sum + (entry.value || 0), 0);
+
       return (
-        <div className="bg-slate-900 border border-slate-800 text-white p-4 rounded-2xl shadow-xl space-y-2 text-xs min-w-[220px]">
-          <div className="border-b border-slate-800 pb-1.5 mb-1.5">
-            <p className="font-black text-slate-400">
-              {timeScale === 'daily' ? `Tanggal: ${label}` : `Bulan: ${label}`}
-            </p>
+        <div className="bg-slate-950/95 backdrop-blur-md border border-slate-800 text-white p-4.5 rounded-2xl shadow-2xl space-y-3 text-xs min-w-[280px] max-w-sm">
+          {/* Header */}
+          <div className="border-b border-slate-800/80 pb-2 flex flex-col gap-1">
+            <div className="flex justify-between items-center">
+              <span className="font-black text-slate-400 uppercase tracking-widest text-[9.5px]">
+                {timeScale === 'daily' ? '📅 Laporan Harian' : '📅 Laporan Bulanan'}
+              </span>
+              <span className="font-mono text-slate-300 font-bold bg-slate-800 px-2 py-0.5 rounded-md text-[10px]">
+                {timeScale === 'daily' ? `Tanggal: ${label}` : `${label}`}
+              </span>
+            </div>
             {holidayOnThisDate && (
-              <div className={`mt-1.5 px-2 py-0.5 rounded-lg text-[9px] font-extrabold border uppercase tracking-wider text-center ${
+              <div className={`mt-1.5 px-2 py-1 rounded-xl text-[9px] font-black border uppercase tracking-wider text-center ${
                 holidayOnThisDate.type === 'national'
-                  ? 'bg-rose-950/60 border-rose-800/80 text-rose-300'
-                  : 'bg-amber-950/60 border-amber-800/80 text-amber-300'
+                  ? 'bg-rose-950/60 border-rose-800/50 text-rose-300'
+                  : 'bg-amber-950/60 border-amber-800/50 text-amber-300'
               }`}>
                 🎉 {holidayOnThisDate.name}
               </div>
             )}
           </div>
-          
-          {payload.map((entry: any, index: number) => {
-            const isCurrency = entry.name.toLowerCase().includes('total') || entry.name.toLowerCase().includes('omzet') || entry.name.toLowerCase().includes('aov');
-            const valueFormatted = isCurrency ? formatRupiahCompact(entry.value) : `${formatNumberIndo(entry.value)} Tx`;
-            return (
-              <div key={index} className="flex justify-between items-center gap-4">
-                <span className="font-bold flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                  {entry.name}
-                </span>
-                <span className="font-mono text-slate-300 font-bold">{valueFormatted}</span>
+
+          {/* Content Based on Active Tab */}
+          {activeTab === 'trend' && payload[0] && (
+            <div className="space-y-2.5">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-slate-400">Total Omzet:</span>
+                <span className="font-mono text-indigo-400 font-black text-sm">{formatRupiah(payload[0].value)}</span>
               </div>
-            );
-          })}
+              
+              {/* Target Comparison */}
+              {targetSales > 0 && (
+                <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="font-semibold text-slate-500">Target Harian:</span>
+                    <span className="font-mono text-slate-300">{formatRupiah(targetSales)}</span>
+                  </div>
+                  {payload[0].value >= targetSales ? (
+                    <div className="flex items-center justify-between bg-emerald-950/40 border border-emerald-800/40 px-2.5 py-1.5 rounded-xl">
+                      <span className="text-[10px] font-extrabold text-emerald-400 flex items-center gap-1">
+                        🎯 Target Tercapai
+                      </span>
+                      <span className="font-mono text-[10px] font-black text-emerald-400">
+                        +{((payload[0].value / targetSales) * 100 - 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between bg-rose-950/40 border border-rose-800/40 px-2.5 py-1.5 rounded-xl">
+                      <span className="text-[10px] font-extrabold text-rose-400 flex items-center gap-1">
+                        ⚠️ Di Bawah Target
+                      </span>
+                      <span className="font-mono text-[10px] font-black text-rose-400">
+                        {((payload[0].value / targetSales) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'channel' && (
+            <div className="space-y-2">
+              <div className="text-[10px] font-black uppercase text-slate-400 border-b border-slate-800/60 pb-1 flex justify-between">
+                <span>Channel Penjualan</span>
+                <span>Nilai &amp; Kontribusi</span>
+              </div>
+              <div className="space-y-1.5">
+                {payload.map((entry: any, index: number) => {
+                  const percentage = totalSum > 0 ? (entry.value / totalSum) * 100 : 0;
+                  return (
+                    <div key={index} className="flex justify-between items-center gap-4 text-[11px]">
+                      <span className="font-bold flex items-center gap-1.5 text-slate-300">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                        {entry.name}
+                      </span>
+                      <div className="flex items-center gap-2 font-mono">
+                        <span className="text-slate-300 font-bold">{formatRupiah(entry.value)}</span>
+                        <span className="text-[10px] font-extrabold bg-slate-800/60 px-1.5 py-0.5 rounded text-indigo-300">
+                          {percentage.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-[11px] font-black">
+                <span className="text-slate-400">Total Akumulasi:</span>
+                <span className="font-mono text-emerald-400 text-xs">{formatRupiah(totalSum)}</span>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'comparison' && (
+            <div className="space-y-2">
+              <div className="text-[10px] font-black uppercase text-slate-400 border-b border-slate-800/60 pb-1 flex justify-between">
+                <span>Channel Order</span>
+                <span>Volume &amp; Share</span>
+              </div>
+              <div className="space-y-1.5">
+                {payload.map((entry: any, index: number) => {
+                  const percentage = totalSum > 0 ? (entry.value / totalSum) * 100 : 0;
+                  return (
+                    <div key={index} className="flex justify-between items-center gap-4 text-[11px]">
+                      <span className="font-bold flex items-center gap-1.5 text-slate-300">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                        {entry.name}
+                      </span>
+                      <div className="flex items-center gap-2 font-mono">
+                        <span className="text-slate-300 font-bold">{entry.value} Tx</span>
+                        <span className="text-[10px] font-extrabold bg-slate-800/60 px-1.5 py-0.5 rounded text-blue-300">
+                          {percentage.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-[11px] font-black">
+                <span className="text-slate-400">Total Transaksi:</span>
+                <span className="font-mono text-blue-400 text-xs">{totalSum} Transaksi</span>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'aov' && payload[0] && (
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-slate-400">Nilai Rerata Keranjang (AOV):</span>
+                <span className="font-mono text-rose-400 font-black text-sm">{formatRupiah(payload[0].value)}</span>
+              </div>
+              <div className="p-2 bg-slate-900 rounded-xl border border-slate-800/50 text-[10px] text-slate-400 leading-relaxed">
+                💡 <strong className="text-slate-300">AOV (Average Order Value)</strong> mengindikasikan rata-rata nominal belanja yang dikeluarkan pelanggan dalam sekali transaksi.
+              </div>
+            </div>
+          )}
         </div>
       );
     }

@@ -1,11 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { DailySales } from '../types';
-import { formatRupiah, formatNumberIndo, formatRupiahCompact } from '../utils';
+import { formatRupiah, formatNumberIndo, formatRupiahCompact, formatDateIndo } from '../utils';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
   CartesianGrid, Tooltip, Legend, Cell
 } from 'recharts';
-import { BarChart3, HelpCircle, Sparkles, CalendarDays, TrendingUp, ShoppingBag, Layers, Percent } from 'lucide-react';
+import { 
+  BarChart3, HelpCircle, Sparkles, CalendarDays, TrendingUp, 
+  ShoppingBag, Layers, Percent, X, Info, Calendar 
+} from 'lucide-react';
 
 interface SalesDayOfWeekProps {
   salesData: DailySales[];
@@ -15,6 +18,7 @@ type MetricType = 'revenue' | 'transactions' | 'aov' | 'channels';
 
 export default function SalesDayOfWeek({ salesData }: SalesDayOfWeekProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricType>('revenue');
+  const [selectedDayName, setSelectedDayName] = useState<string | null>(null);
 
   // Days order starting from Monday to Sunday
   const DAYS_ORDER = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
@@ -152,6 +156,19 @@ export default function SalesDayOfWeek({ salesData }: SalesDayOfWeekProps) {
     };
   }, [dayOfWeekStats]);
 
+  // Detailed calculations for selected popup day
+  const selectedDayData = useMemo(() => {
+    if (!selectedDayName) return null;
+    return dayOfWeekStats.find(d => d.dayName === selectedDayName) || null;
+  }, [selectedDayName, dayOfWeekStats]);
+
+  const selectedDayDates = useMemo(() => {
+    if (!selectedDayName) return [];
+    return salesData
+      .filter(d => d.dayOfWeek === selectedDayName)
+      .sort((a, b) => b.totalAll - a.totalAll);
+  }, [selectedDayName, salesData]);
+
   // Custom tooltips
   const customTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -252,7 +269,9 @@ export default function SalesDayOfWeek({ salesData }: SalesDayOfWeekProps) {
           </div>
           <div>
             <h3 className="text-sm font-black text-slate-800 leading-none">Analisa Performa Hari (Day of Week)</h3>
-            <p className="text-[10px] text-slate-400 font-bold mt-1">Mengidentifikasi hari-hari paling menguntungkan untuk strategi operasional bisnis</p>
+            <p className="text-[10px] text-slate-400 font-bold mt-1">
+              Mengidentifikasi hari-hari paling menguntungkan. <span className="text-indigo-600 font-black animate-pulse">(Klik Batang Diagram untuk Detail)</span>
+            </p>
           </div>
         </div>
 
@@ -381,7 +400,14 @@ export default function SalesDayOfWeek({ salesData }: SalesDayOfWeekProps) {
                 <Bar dataKey="avgRevenue" name="Rerata Omzet Harian" radius={[6, 6, 0, 0]} maxBarSize={45}>
                   {dayOfWeekStats.map((entry, index) => {
                     const isBest = insights && entry.dayName === insights.bestDay.name;
-                    return <Cell key={`cell-${index}`} fill={isBest ? '#10b981' : '#6366f1'} />;
+                    return (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={isBest ? '#10b981' : '#6366f1'} 
+                        cursor="pointer"
+                        onClick={() => setSelectedDayName(entry.dayName)}
+                      />
+                    );
                   })}
                 </Bar>
               </BarChart>
@@ -392,9 +418,36 @@ export default function SalesDayOfWeek({ salesData }: SalesDayOfWeekProps) {
                 <YAxis tickFormatter={v => formatRupiahCompact(v)} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} />
                 <Tooltip content={customTooltip} cursor={{ fill: '#f1f5f9', opacity: 0.5 }} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11, fontWeight: 'bold', paddingTop: 10 }} />
-                <Bar dataKey="avgManual" name="Manual Sales" stackId="a" fill="#f59e0b" maxBarSize={45} />
-                <Bar dataKey="avgReguler" name="Reguler Sales" stackId="a" fill="#3b82f6" maxBarSize={45} />
-                <Bar dataKey="avgInstan" name="Instan Sales" stackId="a" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={45} />
+                <Bar dataKey="avgManual" name="Manual Sales" stackId="a" fill="#f59e0b" maxBarSize={45}>
+                  {dayOfWeekStats.map((entry, idx) => (
+                    <Cell 
+                      key={`manual-${idx}`} 
+                      fill="#f59e0b" 
+                      cursor="pointer" 
+                      onClick={() => setSelectedDayName(entry.dayName)} 
+                    />
+                  ))}
+                </Bar>
+                <Bar dataKey="avgReguler" name="Reguler Sales" stackId="a" fill="#3b82f6" maxBarSize={45}>
+                  {dayOfWeekStats.map((entry, idx) => (
+                    <Cell 
+                      key={`reguler-${idx}`} 
+                      fill="#3b82f6" 
+                      cursor="pointer" 
+                      onClick={() => setSelectedDayName(entry.dayName)} 
+                    />
+                  ))}
+                </Bar>
+                <Bar dataKey="avgInstan" name="Instan Sales" stackId="a" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={45}>
+                  {dayOfWeekStats.map((entry, idx) => (
+                    <Cell 
+                      key={`instan-${idx}`} 
+                      fill="#10b981" 
+                      cursor="pointer" 
+                      onClick={() => setSelectedDayName(entry.dayName)} 
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             ) : selectedMetric === 'transactions' ? (
               <BarChart data={dayOfWeekStats} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
@@ -405,7 +458,14 @@ export default function SalesDayOfWeek({ salesData }: SalesDayOfWeekProps) {
                 <Bar dataKey="avgTransactions" name="Rerata Order (Tx)" radius={[6, 6, 0, 0]} maxBarSize={45}>
                   {dayOfWeekStats.map((entry, index) => {
                     const isSunday = entry.dayName === 'Minggu' || entry.dayName === 'Sabtu';
-                    return <Cell key={`cell-${index}`} fill={isSunday ? '#3b82f6' : '#818cf8'} />;
+                    return (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={isSunday ? '#3b82f6' : '#818cf8'} 
+                        cursor="pointer"
+                        onClick={() => setSelectedDayName(entry.dayName)}
+                      />
+                    );
                   })}
                 </Bar>
               </BarChart>
@@ -415,7 +475,16 @@ export default function SalesDayOfWeek({ salesData }: SalesDayOfWeekProps) {
                 <XAxis dataKey="dayName" tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} />
                 <YAxis tickFormatter={v => formatRupiahCompact(v)} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} />
                 <Tooltip content={customTooltip} cursor={{ fill: '#f1f5f9', opacity: 0.5 }} />
-                <Bar dataKey="aov" name="Rerata Nilai Keranjang (AOV)" radius={[6, 6, 0, 0]} maxBarSize={45} fill="#f43f5e" />
+                <Bar dataKey="aov" name="Rerata Nilai Keranjang (AOV)" radius={[6, 6, 0, 0]} maxBarSize={45} fill="#f43f5e">
+                  {dayOfWeekStats.map((entry, index) => (
+                    <Cell 
+                      key={`aov-${index}`} 
+                      fill="#f43f5e" 
+                      cursor="pointer" 
+                      onClick={() => setSelectedDayName(entry.dayName)} 
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             )}
           </ResponsiveContainer>
@@ -436,6 +505,244 @@ export default function SalesDayOfWeek({ salesData }: SalesDayOfWeekProps) {
           Sebaliknya, pada <strong className="text-indigo-600 font-bold">Hari Tersepi</strong>, pertimbangkan pemberian promo diskon kilat (flash sale) atau kampanye penarik minat guna mendorong volume transaksi.
         </div>
       </div>
+
+      {/* DETAILED DAY OF WEEK POPUP MODAL */}
+      {selectedDayName && selectedDayData && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in no-print"
+          onClick={() => setSelectedDayName(null)}
+        >
+          <div 
+            className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-start gap-3.5">
+                <div className="p-3 bg-indigo-50 border border-indigo-100/60 text-indigo-600 rounded-2xl shrink-0">
+                  <CalendarDays className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-800 leading-tight">
+                    Detail Hari: {selectedDayName}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold mt-1">
+                    Analisis performa penjualan, korelasi channel, dan riwayat transaksi harian
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedDayName(null)}
+                className="p-2 hover:bg-slate-200/60 rounded-xl transition-all text-slate-400 hover:text-slate-800 cursor-pointer border border-transparent hover:border-slate-200/40"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+              
+              {/* Highlight Banner */}
+              <div className="bg-gradient-to-r from-indigo-50/70 via-purple-50/40 to-indigo-50/20 border border-indigo-100/30 p-4 rounded-2xl flex items-center gap-3">
+                <Sparkles className="w-5 h-5 text-indigo-500 shrink-0 animate-pulse" />
+                <p className="text-[11px] font-semibold text-indigo-950 leading-relaxed">
+                  Dihitung secara akumulatif dari <strong className="text-indigo-600">{selectedDayData.occurrences} hari {selectedDayName}</strong> historis dalam filter periode aktif Anda.
+                </p>
+              </div>
+
+              {/* Grid of Key Average Metrics */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-slate-50 border border-slate-200/60 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Rata-rata Omzet</span>
+                  <p className="text-base font-black text-slate-800 mt-1 font-mono">
+                    {formatRupiah(selectedDayData.avgRevenue)}
+                  </p>
+                  <p className="text-[9.5px] text-slate-400 font-bold mt-1">
+                    Total: {formatRupiahCompact(selectedDayData.totalAll)}
+                  </p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200/60 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Rata-rata Order</span>
+                  <p className="text-base font-black text-slate-800 mt-1 font-mono">
+                    {selectedDayData.avgTransactions} <span className="text-xs font-bold text-slate-400">Tx</span>
+                  </p>
+                  <p className="text-[9.5px] text-slate-400 font-bold mt-1">
+                    Total: {formatNumberIndo(selectedDayData.txAll)} Tx
+                  </p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200/60 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Rata-rata AOV</span>
+                  <p className="text-base font-black text-slate-800 mt-1 font-mono">
+                    {formatRupiah(selectedDayData.aov)}
+                  </p>
+                  <p className="text-[9.5px] text-slate-400 font-bold mt-1">
+                    Nilai belanja per keranjang
+                  </p>
+                </div>
+              </div>
+
+              {/* Channel Distribution */}
+              <div className="space-y-3">
+                <h4 className="text-[11px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                  Rata-rata Omzet Berdasarkan Delivery Channel
+                </h4>
+                
+                <div className="bg-slate-50/60 border border-slate-100 rounded-2xl p-4.5 space-y-3.5">
+                  {/* Instan Channel */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-xs font-bold">
+                      <span className="text-emerald-600 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                        Instant Delivery
+                      </span>
+                      <span className="font-mono font-black text-slate-700">
+                        {formatRupiah(selectedDayData.avgInstan)}
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                        style={{ 
+                          width: `${selectedDayData.avgRevenue > 0 ? (selectedDayData.avgInstan / selectedDayData.avgRevenue) * 100 : 0}%` 
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[9.5px] text-slate-400 font-bold">
+                      <span>Kontribusi: {selectedDayData.avgRevenue > 0 ? ((selectedDayData.avgInstan / selectedDayData.avgRevenue) * 100).toFixed(1) : 0}%</span>
+                      <span>Total Tx Instan: {selectedDayData.txInstan}</span>
+                    </div>
+                  </div>
+
+                  {/* Reguler Channel */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-xs font-bold">
+                      <span className="text-blue-600 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                        Regular Shipping
+                      </span>
+                      <span className="font-mono font-black text-slate-700">
+                        {formatRupiah(selectedDayData.avgReguler)}
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                        style={{ 
+                          width: `${selectedDayData.avgRevenue > 0 ? (selectedDayData.avgReguler / selectedDayData.avgRevenue) * 100 : 0}%` 
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[9.5px] text-slate-400 font-bold">
+                      <span>Kontribusi: {selectedDayData.avgRevenue > 0 ? ((selectedDayData.avgReguler / selectedDayData.avgRevenue) * 100).toFixed(1) : 0}%</span>
+                      <span>Total Tx Reguler: {selectedDayData.txReguler}</span>
+                    </div>
+                  </div>
+
+                  {/* Manual Channel */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-xs font-bold">
+                      <span className="text-amber-600 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                        Manual Input / COD
+                      </span>
+                      <span className="font-mono font-black text-slate-700">
+                        {formatRupiah(selectedDayData.avgManual)}
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-amber-500 rounded-full transition-all duration-500"
+                        style={{ 
+                          width: `${selectedDayData.avgRevenue > 0 ? (selectedDayData.avgManual / selectedDayData.avgRevenue) * 100 : 0}%` 
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[9.5px] text-slate-400 font-bold">
+                      <span>Kontribusi: {selectedDayData.avgRevenue > 0 ? ((selectedDayData.avgManual / selectedDayData.avgRevenue) * 100).toFixed(1) : 0}%</span>
+                      <span>Total Tx Manual: {selectedDayData.txManual}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Historical Dates Table */}
+              <div className="space-y-3">
+                <h4 className="text-[11px] font-black uppercase text-slate-500 tracking-wider">
+                  Riwayat Transaksi Harian pada Hari {selectedDayName} (Urutan Omzet Terbesar)
+                </h4>
+                <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm bg-white max-h-[250px] overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="sticky top-0 bg-white z-10 shadow-sm">
+                      <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                        <th className="py-2.5 px-4">Tanggal</th>
+                        <th className="py-2.5 px-4 text-center">Transaksi</th>
+                        <th className="py-2.5 px-4 text-center">Nilai AOV</th>
+                        <th className="py-2.5 px-4 text-right pr-6">Omzet Harian</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedDayDates.map((item) => {
+                        const dateAov = item.txAll > 0 ? item.totalAll / item.txAll : 0;
+                        const isAboveAvg = item.totalAll >= selectedDayData.avgRevenue;
+                        return (
+                          <tr 
+                            key={item.date} 
+                            className="border-b border-slate-100/60 last:border-0 hover:bg-slate-50/60 text-xs text-slate-600 font-semibold"
+                          >
+                            <td className="py-2.5 px-4">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span className="text-slate-800 font-bold">{formatDateIndo(item.date)}</span>
+                                {isAboveAvg ? (
+                                  <span className="text-[8px] bg-emerald-50 text-emerald-600 font-black px-1.5 py-0.5 rounded border border-emerald-100/50">
+                                    Diatas Rerata
+                                  </span>
+                                ) : (
+                                  <span className="text-[8px] bg-slate-100 text-slate-400 font-bold px-1.5 py-0.5 rounded">
+                                    Dibawah Rerata
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-4 text-center text-slate-600 font-mono font-bold">
+                              {item.txAll} Tx
+                            </td>
+                            <td className="py-2.5 px-4 text-center text-slate-500 font-mono">
+                              {formatRupiahCompact(dateAov)}
+                            </td>
+                            <td className="py-2.5 px-4 text-right text-indigo-600 font-mono font-black pr-6">
+                              {formatRupiah(item.totalAll)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {selectedDayDates.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="py-6 text-center text-slate-400 font-bold italic">
+                            Tidak ada data untuk hari ini.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setSelectedDayName(null)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-900 rounded-xl text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm hover:shadow"
+              >
+                Tutup Detail
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

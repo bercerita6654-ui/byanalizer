@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
-  PieChart, Pie, Legend
+  PieChart, Pie, Legend, LineChart, Line
 } from 'recharts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -107,6 +107,11 @@ export default function SalesProducts() {
   const [itemsPerPage, setItemsPerPage] = useState<number>(10);
   const [selectedTrendProductSku, setSelectedTrendProductSku] = useState<string | null>(null);
   const [selectedCategoryDetail, setSelectedCategoryDetail] = useState<string | null>(null);
+
+  // Product comparison state
+  const [selectedCompProductASku, setSelectedCompProductASku] = useState<string>('');
+  const [selectedCompProductBSku, setSelectedCompProductBSku] = useState<string>('');
+  const [compMetric, setCompMetric] = useState<'qty' | 'sales'>('qty');
 
   // Time-based filtering states (column 2 based daily/weekly/monthly filtering)
   const [timeFilterType, setTimeFilterType] = useState<'all' | 'daily' | 'weekly' | 'monthly'>('monthly');
@@ -633,6 +638,89 @@ export default function SalesProducts() {
       toReduce: finalReduce.filter(p => p.totalQty > 0)
     };
   }, [filteredAndSortedProducts, productTrendMap]);
+
+  // Get all unique dates matching active period filters, sorted chronologically
+  const comparisonDates = useMemo(() => {
+    let filteredDays = [...availableDays];
+    
+    // Sort ascending so dates flow from past to future
+    filteredDays.sort((a, b) => a.localeCompare(b));
+
+    if (timeFilterType === 'daily' && selectedDay !== 'all') {
+      filteredDays = [selectedDay];
+    } else if (timeFilterType === 'weekly' && selectedWeek !== 'all') {
+      filteredDays = filteredDays.filter(d => getMondayOfWeek(d) === selectedWeek);
+    } else if (timeFilterType === 'monthly' && selectedMonth !== 'all') {
+      filteredDays = filteredDays.filter(d => d.substring(0, 7) === selectedMonth);
+    }
+
+    return filteredDays;
+  }, [availableDays, timeFilterType, selectedDay, selectedWeek, selectedMonth]);
+
+  // Available options for product comparison (from the aggregated list)
+  const comparisonProductOptions = useMemo(() => {
+    return [...aggregatedProducts].sort((a, b) => b.totalSales - a.totalSales);
+  }, [aggregatedProducts]);
+
+  // Selected product A & B details
+  const selectedCompProductA = useMemo(() => {
+    if (!selectedCompProductASku) return null;
+    return aggregatedProducts.find(p => p.sku === selectedCompProductASku) || products.find(p => p.sku === selectedCompProductASku) || null;
+  }, [selectedCompProductASku, aggregatedProducts, products]);
+
+  const selectedCompProductB = useMemo(() => {
+    if (!selectedCompProductBSku) return null;
+    return aggregatedProducts.find(p => p.sku === selectedCompProductBSku) || products.find(p => p.sku === selectedCompProductBSku) || null;
+  }, [selectedCompProductBSku, aggregatedProducts, products]);
+
+  // Combined daily trend data for the two selected products
+  const comparisonChartData = useMemo(() => {
+    if (!selectedCompProductASku || !selectedCompProductBSku) return [];
+
+    return comparisonDates.map(date => {
+      let qtyA = 0;
+      let salesA = 0;
+      let qtyB = 0;
+      let salesB = 0;
+
+      products.forEach(p => {
+        if (p.date === date) {
+          if (p.sku === selectedCompProductASku) {
+            qtyA += p.totalQty;
+            salesA += p.totalSales;
+          } else if (p.sku === selectedCompProductBSku) {
+            qtyB += p.totalQty;
+            salesB += p.totalSales;
+          }
+        }
+      });
+
+      return {
+        date,
+        formattedDate: formatDateIndo(date),
+        qtyA,
+        salesA,
+        qtyB,
+        salesB
+      };
+    });
+  }, [comparisonDates, products, selectedCompProductASku, selectedCompProductBSku]);
+
+  // Automatically select top 2 bestselling products as defaults
+  useEffect(() => {
+    if (comparisonProductOptions.length >= 2) {
+      if (!selectedCompProductASku) {
+        setSelectedCompProductASku(comparisonProductOptions[0].sku);
+      }
+      if (!selectedCompProductBSku) {
+        setSelectedCompProductBSku(comparisonProductOptions[1].sku);
+      }
+    } else if (comparisonProductOptions.length === 1) {
+      if (!selectedCompProductASku) {
+        setSelectedCompProductASku(comparisonProductOptions[0].sku);
+      }
+    }
+  }, [comparisonProductOptions, selectedCompProductASku, selectedCompProductBSku]);
 
   // Pagination helper
   const paginatedProducts = useMemo(() => {
@@ -1494,6 +1582,271 @@ export default function SalesProducts() {
               </div>
             </div>
 
+          </div>
+
+          {/* PANEL PERBANDINGAN PRODUK SECARA BERDAMPINGAN */}
+          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-xl">
+                  <ArrowUpDown className="w-5 h-5 text-indigo-500" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Perbandingan Produk Secara Berdampingan</h3>
+                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">Bandingkan tren volume penjualan dan omzet antara dua produk dalam periode waktu yang sama</p>
+                </div>
+              </div>
+              
+              {/* Metric Select Toggle */}
+              <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200/50 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setCompMetric('qty')}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    compMetric === 'qty'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Volume (Qty)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompMetric('sales')}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    compMetric === 'sales'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Omzet (IDR)
+                </button>
+              </div>
+            </div>
+
+            {/* Selection Dropdowns Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+              {/* Product A Selector */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                  Produk Pertama (A):
+                </span>
+                <select
+                  value={selectedCompProductASku}
+                  onChange={e => setSelectedCompProductASku(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700"
+                >
+                  <option value="" disabled>Pilih Produk A</option>
+                  {comparisonProductOptions.map(prod => (
+                    <option key={`comp-a-${prod.sku}`} value={prod.sku}>
+                      [{prod.sku}] {prod.name} ({formatNumberIndo(prod.totalQty)} pcs)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Product B Selector */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Produk Kedua (B):
+                </span>
+                <select
+                  value={selectedCompProductBSku}
+                  onChange={e => setSelectedCompProductBSku(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700"
+                >
+                  <option value="" disabled>Pilih Produk B</option>
+                  {comparisonProductOptions.map(prod => (
+                    <option key={`comp-b-${prod.sku}`} value={prod.sku}>
+                      [{prod.sku}] {prod.name} ({formatNumberIndo(prod.totalQty)} pcs)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Comparison Cards Side-by-Side & Combined Chart */}
+            {selectedCompProductA && selectedCompProductB ? (
+              <div className="space-y-6 animate-fade-in">
+                {/* Stats Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {/* Card Product A */}
+                  <div className="bg-gradient-to-br from-indigo-50/45 to-white border border-indigo-100 rounded-2xl p-5 space-y-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="text-[9px] bg-indigo-100 text-indigo-700 font-black px-2 py-0.5 rounded uppercase font-mono">
+                          Produk A - {selectedCompProductA.sku}
+                        </span>
+                        <h4 className="text-xs font-black text-slate-800 mt-2 line-clamp-2 min-h-[2rem]">
+                          {selectedCompProductA.name}
+                        </h4>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
+                        <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductA.brand}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3 pt-2 border-t border-indigo-100/40">
+                      <div className="bg-white p-3 rounded-xl border border-slate-100">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
+                        <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                          {formatNumberIndo(selectedCompProductA.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductA.unit}</span>
+                        </p>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-100">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
+                        <p className="text-xs font-black text-indigo-600 mt-1 font-mono truncate">
+                          {formatRupiah(selectedCompProductA.totalSales)}
+                        </p>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-100">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
+                        <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
+                          {formatRupiah(selectedCompProductA.totalQty > 0 ? selectedCompProductA.totalSales / selectedCompProductA.totalQty : 0)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Contribution Share Badge */}
+                    {stats && (
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-indigo-100/30">
+                        <span>Kontribusi Toko:</span>
+                        <span className="text-indigo-600 font-black">
+                          {((selectedCompProductA.totalSales / (stats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card Product B */}
+                  <div className="bg-gradient-to-br from-emerald-50/45 to-white border border-emerald-100 rounded-2xl p-5 space-y-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="text-[9px] bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded uppercase font-mono">
+                          Produk B - {selectedCompProductB.sku}
+                        </span>
+                        <h4 className="text-xs font-black text-slate-800 mt-2 line-clamp-2 min-h-[2rem]">
+                          {selectedCompProductB.name}
+                        </h4>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
+                        <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductB.brand}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3 pt-2 border-t border-emerald-100/40">
+                      <div className="bg-white p-3 rounded-xl border border-slate-100">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
+                        <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                          {formatNumberIndo(selectedCompProductB.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductB.unit}</span>
+                        </p>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-100">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
+                        <p className="text-xs font-black text-emerald-600 mt-1 font-mono truncate">
+                          {formatRupiah(selectedCompProductB.totalSales)}
+                        </p>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-100">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
+                        <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
+                          {formatRupiah(selectedCompProductB.totalQty > 0 ? selectedCompProductB.totalSales / selectedCompProductB.totalQty : 0)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Contribution Share Badge */}
+                    {stats && (
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-emerald-100/30">
+                        <span>Kontribusi Toko:</span>
+                        <span className="text-emerald-600 font-black">
+                          {((selectedCompProductB.totalSales / (stats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Combined Trend Chart */}
+                <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-100">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                      <BarChart2 className="w-4 h-4 text-indigo-500" />
+                      Visualisasi Tren Perbandingan ({compMetric === 'qty' ? 'Volume Unit' : 'Nilai Omzet'})
+                    </h4>
+                    <span className="text-[8px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded font-black uppercase">
+                      Rentang Waktu Sama
+                    </span>
+                  </div>
+
+                  <div className="h-72 w-full pt-1">
+                    {comparisonChartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={comparisonChartData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                          <XAxis 
+                            dataKey="formattedDate" 
+                            tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'bold' }} 
+                            axisLine={false} 
+                            tickLine={false} 
+                          />
+                          <YAxis 
+                            tick={{ fontSize: 9, fill: '#475569', fontWeight: 'bold' }} 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tickFormatter={(v) => compMetric === 'sales' ? formatRupiahCompact(v) : formatNumberIndo(v)}
+                          />
+                          <Tooltip 
+                            formatter={(value, name) => {
+                              const label = name === 'A' ? `[A] ${selectedCompProductA.sku}` : `[B] ${selectedCompProductB.sku}`;
+                              if (compMetric === 'sales') return [formatRupiah(value as number), label];
+                              return [`${value} unit`, label];
+                            }}
+                            contentStyle={{ background: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '10px' }}
+                          />
+                          <Legend 
+                            verticalAlign="top" 
+                            height={36} 
+                            iconType="circle" 
+                            wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} 
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey={compMetric === 'qty' ? 'qtyA' : 'salesA'} 
+                            name={`[A] ${selectedCompProductA.name.substring(0, 20)}...`} 
+                            stroke="#6366f1" 
+                            strokeWidth={3}
+                            activeDot={{ r: 6 }} 
+                            dot={{ strokeWidth: 1 }}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey={compMetric === 'qty' ? 'qtyB' : 'salesB'} 
+                            name={`[B] ${selectedCompProductB.name.substring(0, 20)}...`} 
+                            stroke="#10b981" 
+                            strokeWidth={3}
+                            activeDot={{ r: 6 }} 
+                            dot={{ strokeWidth: 1 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-slate-400 italic text-xs font-bold">
+                        Pilih dua produk di atas untuk memuat grafik tren performa.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-10 bg-slate-50 rounded-2xl border border-slate-100 text-slate-400 font-bold text-xs italic">
+                Pilih dua produk di atas untuk memulai analisa perbandingan.
+              </div>
+            )}
           </div>
 
           {/* Core Interactive Search & Filter Controls */}

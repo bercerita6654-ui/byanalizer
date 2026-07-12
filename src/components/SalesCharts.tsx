@@ -214,7 +214,7 @@ export default function SalesCharts({ salesData }: SalesChartsProps) {
   };
 
   return (
-    <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-6">
+    <div id="sales-charts-section" className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-6">
       
       {/* Header and Toggles */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">

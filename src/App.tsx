@@ -13,11 +13,14 @@ import SalesPredictions from './components/SalesPredictions';
 import EventModal from './components/EventModal';
 import SalesReportModal from './components/SalesReportModal';
 import SalesProducts from './components/SalesProducts';
+import SalesHeatmap from './components/SalesHeatmap';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import { 
   TrendingUp, Calendar, Table, Target, BarChart2, 
   RefreshCw, Link as LinkIcon, HelpCircle, CheckCircle2, 
   Sparkles, FileSpreadsheet, PlusCircle, AlertCircle, FileText,
-  Package
+  Package, Download
 } from 'lucide-react';
 
 const DEFAULT_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=21254849&single=true&output=csv';
@@ -182,6 +185,185 @@ export default function App() {
       const month = maxDateParts[1];
       setFilterStartDate(`${year}-${month}-01`);
       setFilterEndDate(maxDateStr);
+    }
+  };
+
+  const [isDownloadingDashboard, setIsDownloadingDashboard] = useState<boolean>(false);
+  const [downloadStep, setDownloadStep] = useState<string>('');
+
+  const handleDownloadDashboardSummary = async () => {
+    setIsDownloadingDashboard(true);
+    setDownloadStep('Mempersiapkan visualisasi...');
+    try {
+      const chartsElement = document.getElementById('sales-charts-section');
+      const heatmapElement = document.getElementById('sales-heatmap-section');
+
+      if (!chartsElement || !heatmapElement) {
+        throw new Error('Elemen grafik atau heatmap tidak ditemukan di halaman ini.');
+      }
+
+      const doc = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+
+      const pdfWidth = doc.internal.pageSize.getWidth();
+      const pdfHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const contentWidth = pdfWidth - (margin * 2);
+
+      doc.setFillColor(79, 70, 229);
+      doc.rect(0, 0, pdfWidth, 40, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(20);
+      doc.setTextColor(255, 255, 255);
+      doc.text('RINGKASAN EKSEKUTIF DASHBOARD', margin, 18);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(224, 231, 255);
+      const rangeText = filterStartDate && filterEndDate 
+        ? `Periode: ${formatDateIndo(filterStartDate)} s/d ${formatDateIndo(filterEndDate)}`
+        : 'Periode: Semua Data Historis';
+      doc.text(`${rangeText}  |  Dibuat pada: ${formatDateIndo(new Date().toISOString().substring(0, 10))}`, margin, 26);
+
+      doc.setFillColor(245, 158, 11);
+      doc.rect(0, 40, pdfWidth, 3, 'F');
+
+      let currentY = 52;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text('I. RINGKASAN DATA PENJUALAN', margin, currentY);
+      currentY += 6;
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(margin, currentY, contentWidth, 24, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL OMZET', margin + 6, currentY + 6);
+      doc.text('TOTAL TRANSAKSI', margin + 68, currentY + 6);
+      doc.text('NILAI BELANJA (AOV)', margin + 128, currentY + 6);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(79, 70, 229);
+      const totalOmzetVal = filterSummary ? filterSummary.totalOmzet : 0;
+      const totalTxVal = filterSummary ? filterSummary.totalTx : 0;
+      const dayCountVal = filterSummary ? filterSummary.dayCount : 0;
+      
+      doc.text(formatRupiah(totalOmzetVal), margin + 6, currentY + 13);
+      
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${formatNumberIndo(totalTxVal)} Order (Tx)`, margin + 68, currentY + 13);
+      doc.text(formatRupiah(totalTxVal > 0 ? totalOmzetVal / totalTxVal : 0), margin + 128, currentY + 13);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Jumlah hari aktif kerja: ${dayCountVal} Hari`, margin + 6, currentY + 19);
+      doc.text(`Rerata order per hari: ${dayCountVal > 0 ? (totalTxVal / dayCountVal).toFixed(1) : 0} Tx`, margin + 68, currentY + 19);
+      doc.text('Rerata nilai belanja per transaksi', margin + 128, currentY + 19);
+
+      currentY += 34;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text('II. GRAFIK TREN PENJUALAN AKTIF', margin, currentY);
+      currentY += 6;
+
+      setDownloadStep('Mengonversi grafik tren menjadi gambar...');
+      const chartsCanvas = await html2canvas(chartsElement, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      });
+      const chartsImgData = chartsCanvas.toDataURL('image/png');
+
+      const chartsRatio = chartsCanvas.height / chartsCanvas.width;
+      const chartsPdfHeight = contentWidth * chartsRatio;
+      
+      doc.addImage(chartsImgData, 'PNG', margin, currentY, contentWidth, chartsPdfHeight);
+      currentY += chartsPdfHeight + 10;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Halaman 1 dari 2', pdfWidth / 2, pdfHeight - 10, { align: 'center' });
+
+      doc.addPage();
+      currentY = 20;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text('DASHBOARD RINGKASAN (LANJUTAN)', margin, currentY);
+      
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(margin, currentY + 4, pdfWidth - margin, currentY + 4);
+      currentY += 14;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text('III. KEPADATAN PENJUALAN & POLA TRANSAKSI (HEATMAP)', margin, currentY);
+      currentY += 6;
+
+      setDownloadStep('Mengonversi heatmap menjadi gambar...');
+      const heatmapCanvas = await html2canvas(heatmapElement, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      });
+      const heatmapImgData = heatmapCanvas.toDataURL('image/png');
+
+      const heatmapRatio = heatmapCanvas.height / heatmapCanvas.width;
+      const heatmapPdfHeight = contentWidth * heatmapRatio;
+
+      doc.addImage(heatmapImgData, 'PNG', margin, currentY, contentWidth, heatmapPdfHeight);
+      currentY += heatmapPdfHeight + 12;
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(margin, currentY, contentWidth, 20, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Keterangan Visualisasi & Analisis:', margin + 4, currentY + 5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('1. Grafik tren di atas menunjukkan performa pergerakan omzet harian berdasarkan filter yang Anda tetapkan.', margin + 4, currentY + 10);
+      doc.text('2. Heatmap kepadatan menyajikan intensitas transaksi/omzet untuk mempermudah identifikasi hari belanja teramai.', margin + 4, currentY + 15);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Halaman 2 dari 2', pdfWidth / 2, pdfHeight - 10, { align: 'center' });
+
+      const filterRangeName = filterStartDate && filterEndDate ? `_${filterStartDate}_to_${filterEndDate}` : '';
+      doc.save(`Ringkasan_Dashboard${filterRangeName}.pdf`);
+
+      showToast('Berhasil mengunduh ringkasan PDF!', 'success');
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'Gagal mengunduh ringkasan PDF.', 'error');
+    } finally {
+      setIsDownloadingDashboard(false);
+      setDownloadStep('');
     }
   };
 
@@ -550,22 +732,43 @@ export default function App() {
                 {/* Print Report PDF CTA Bar */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 no-print">
                   <div className="flex items-center gap-3">
-                    <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl border border-amber-100">
-                      <FileSpreadsheet className="w-5 h-5 text-amber-500 animate-pulse" />
+                    <div className="p-3 bg-indigo-50 border border-indigo-100/50 text-indigo-600 rounded-2xl">
+                      <FileSpreadsheet className="w-5 h-5 text-indigo-500 animate-pulse" />
                     </div>
                     <div>
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest leading-none">Evaluasi Kinerja Penjualan Bulanan</h4>
-                      <p className="text-[11px] text-slate-400 font-bold mt-1">Cetak / Simpan Laporan Kinerja Bulanan Profesional, Perbandingan 2 Bulan Sebelumnya &amp; Rincian Harian.</p>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest leading-none">Ekspor Laporan &amp; Ringkasan Dashboard</h4>
+                      <p className="text-[11px] text-slate-400 font-bold mt-1">Unduh analisa kinerja penjualan bulanan, tren grafis, atau visualisasi heatmap kepadatan dalam format PDF rapi.</p>
                     </div>
                   </div>
                   
-                  <button
-                    onClick={() => setIsReportModalOpen(true)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold uppercase tracking-widest px-5 py-3 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-100 shrink-0 hover:scale-[1.01]"
-                  >
-                    <FileText className="w-4 h-4 text-white" />
-                    Unduh Laporan PDF
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                    <button
+                      onClick={() => setIsReportModalOpen(true)}
+                      disabled={isDownloadingDashboard}
+                      className="bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-extrabold uppercase tracking-widest px-4 py-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <FileText className="w-4 h-4 text-slate-500" />
+                      Laporan Bulanan
+                    </button>
+                    
+                    <button
+                      onClick={handleDownloadDashboardSummary}
+                      disabled={isDownloadingDashboard}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold uppercase tracking-widest px-5 py-3 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-100 cursor-pointer disabled:bg-indigo-400 disabled:cursor-not-allowed"
+                    >
+                      {isDownloadingDashboard ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 text-white animate-spin" />
+                          <span>{downloadStep}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4 text-white" />
+                          <span>Unduh Ringkasan PDF</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 <SalesSummary salesData={filteredSalesData} />
@@ -584,6 +787,10 @@ export default function App() {
 
                 <div className="pt-4 border-t border-slate-200/50">
                   <SalesDayOfWeek salesData={filteredSalesData} />
+                </div>
+
+                <div className="pt-4 border-t border-slate-200/50">
+                  <SalesHeatmap salesData={filteredSalesData} />
                 </div>
               </motion.div>
             )}

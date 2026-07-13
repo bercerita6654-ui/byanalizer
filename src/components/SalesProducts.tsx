@@ -256,12 +256,38 @@ export default function SalesProducts() {
     return Array.from(monthsSet).sort((a, b) => b.localeCompare(a)); // Sort descending (latest first)
   }, [products]);
 
-  // Pre-calculate 7-day sales trend (Qty & Sales) for all products
+  // Get all unique dates matching active period filters, sorted chronologically
+  const comparisonDates = useMemo(() => {
+    let filteredDays = [...availableDays];
+    
+    // Sort ascending so dates flow from past to future
+    filteredDays.sort((a, b) => a.localeCompare(b));
+
+    if (timeFilterType === 'daily' && selectedDay !== 'all') {
+      filteredDays = [selectedDay];
+    } else if (timeFilterType === 'weekly' && selectedWeek !== 'all') {
+      filteredDays = filteredDays.filter(d => getMondayOfWeek(d) === selectedWeek);
+    } else if (timeFilterType === 'monthly' && selectedMonth !== 'all') {
+      filteredDays = filteredDays.filter(d => d.substring(0, 7) === selectedMonth);
+    }
+
+    return filteredDays;
+  }, [availableDays, timeFilterType, selectedDay, selectedWeek, selectedMonth]);
+
+  // The latest 7 unique days from the active period, sorted chronologically ascending
+  const activeTrendDays = useMemo(() => {
+    if (comparisonDates.length > 0) {
+      return comparisonDates.slice(-7);
+    }
+    const overallDays = [...availableDays].sort((a, b) => a.localeCompare(b));
+    return overallDays.slice(-7);
+  }, [comparisonDates, availableDays]);
+
+  // Pre-calculate 7-day sales trend (Qty & Sales) for all products based on the active trend days
   const productTrendMap = useMemo(() => {
     if (products.length === 0) return { last7Days: [], trends: {} as Record<string, { qty: number[]; sales: number[] }> };
 
-    // Get the latest 7 unique days from availableDays
-    const last7Days = [...availableDays.slice(0, 7)].reverse();
+    const last7Days = [...activeTrendDays];
     const K = last7Days.length;
 
     const trends: Record<string, { qty: number[]; sales: number[] }> = {};
@@ -285,7 +311,7 @@ export default function SalesProducts() {
       last7Days,
       trends
     };
-  }, [products, availableDays]);
+  }, [products, activeTrendDays]);
 
   // Selected product and its 7-day trend chart data for the popup detailed view
   const selectedTrendProduct = useMemo(() => {
@@ -790,24 +816,6 @@ export default function SalesProducts() {
       toReduce: finalReduce.filter(p => p.totalQty > 0)
     };
   }, [filteredAndSortedProducts, productTrendMap]);
-
-  // Get all unique dates matching active period filters, sorted chronologically
-  const comparisonDates = useMemo(() => {
-    let filteredDays = [...availableDays];
-    
-    // Sort ascending so dates flow from past to future
-    filteredDays.sort((a, b) => a.localeCompare(b));
-
-    if (timeFilterType === 'daily' && selectedDay !== 'all') {
-      filteredDays = [selectedDay];
-    } else if (timeFilterType === 'weekly' && selectedWeek !== 'all') {
-      filteredDays = filteredDays.filter(d => getMondayOfWeek(d) === selectedWeek);
-    } else if (timeFilterType === 'monthly' && selectedMonth !== 'all') {
-      filteredDays = filteredDays.filter(d => d.substring(0, 7) === selectedMonth);
-    }
-
-    return filteredDays;
-  }, [availableDays, timeFilterType, selectedDay, selectedWeek, selectedMonth]);
 
   // Available options for product comparison (from the aggregated list)
   const comparisonProductOptions = useMemo(() => {
@@ -1449,6 +1457,110 @@ export default function SalesProducts() {
                   Reset Semua Filter
                 </button>
               )}
+            </div>
+          </div>
+
+          {/* Quick Period Filters for KPI Summary Cards */}
+          <div className="bg-white/80 p-4 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 mt-5">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Metrik Utama:</span>
+              <div className="h-4 w-[1px] bg-slate-200"></div>
+              <p className="text-xs font-bold text-slate-600">
+                Menampilkan data {timeFilterType === 'all' ? 'Semua Waktu' : timeFilterType === 'daily' ? 'Harian' : timeFilterType === 'weekly' ? 'Mingguan' : 'Bulanan'}
+              </p>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200/50">
+              <button
+                type="button"
+                onClick={() => {
+                  setTimeFilterType('all');
+                }}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  timeFilterType === 'all'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200/50'
+                }`}
+              >
+                Semua Waktu
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTimeFilterType('monthly');
+                  // Automatical month selection
+                  if (selectedMonth === 'all' || !selectedMonth) {
+                    if (availableMonths.length > 0) {
+                      setSelectedMonth(availableMonths[0]);
+                    } else {
+                      const d = new Date();
+                      const year = d.getFullYear();
+                      const month = String(d.getMonth() + 1).padStart(2, '0');
+                      setSelectedMonth(`${year}-${month}`);
+                    }
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  timeFilterType === 'monthly'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200/50'
+                }`}
+              >
+                Bulanan
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTimeFilterType('weekly');
+                  // Automatical week selection matching month or overall latest
+                  const activeMonth = selectedMonth !== 'all' ? selectedMonth : (availableMonths[0] || '');
+                  if (activeMonth) {
+                    const matchedWeek = availableWeeks.find(w => w.startsWith(activeMonth));
+                    if (matchedWeek) {
+                      setSelectedWeek(matchedWeek);
+                    } else if (availableWeeks.length > 0) {
+                      setSelectedWeek(availableWeeks[0]);
+                    }
+                  } else if (availableWeeks.length > 0) {
+                    setSelectedWeek(availableWeeks[0]);
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  timeFilterType === 'weekly'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200/50'
+                }`}
+              >
+                Mingguan
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTimeFilterType('daily');
+                  // Automatical day selection matching month or overall latest
+                  const activeMonth = selectedMonth !== 'all' ? selectedMonth : (availableMonths[0] || '');
+                  if (activeMonth) {
+                    const matchedDay = availableDays.find(d => d.startsWith(activeMonth));
+                    if (matchedDay) {
+                      setSelectedDay(matchedDay);
+                    } else if (availableDays.length > 0) {
+                      setSelectedDay(availableDays[0]);
+                    }
+                  } else if (availableDays.length > 0) {
+                    setSelectedDay(availableDays[0]);
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  timeFilterType === 'daily'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200/50'
+                }`}
+              >
+                Harian
+              </button>
             </div>
           </div>
 

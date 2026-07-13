@@ -371,7 +371,10 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
     let qIdx = qtyIdx;
     let nomIdx = nomerIdx;
 
-    if (hasLeadingEmpty && row.length === headers.length - 1) {
+    const rowHasLeadingEmpty = row[0] === '';
+    const needShift = hasLeadingEmpty && !rowHasLeadingEmpty;
+
+    if (needShift) {
       if (sIdx > 0) sIdx--;
       if (cIdx > 0) cIdx--;
       if (nIdx > 0) nIdx--;
@@ -383,19 +386,28 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
       if (nomIdx > 0) nomIdx--;
     }
 
+    const defaultSkuIdx = needShift ? 3 : 4;
+    const defaultCatIdx = needShift ? 6 : 7;
+    const defaultNameIdx = needShift ? 5 : 6;
+    const defaultUnitIdx = needShift ? 9 : 10;
+    const defaultQtyIdx = needShift ? 8 : 9;
+    const defaultPriceIdx = needShift ? 10 : 11;
+    const defaultDateIdx = needShift ? 0 : 1;
+    const defaultBrandIdx = needShift ? 7 : 8;
+
     // Extract values with safe fallbacks
-    const sku = (row[sIdx] || row[3] || '').trim();
+    const sku = (row[sIdx] || row[defaultSkuIdx] || '').trim();
     if (!sku || sku.toLowerCase() === 'code' || sku.toLowerCase() === 'sku' || sku.toLowerCase() === 'barcode') continue;
 
-    const category = (row[cIdx] || row[6] || '').trim() || 'Uncategorized';
-    const name = (row[nIdx] || row[5] || '').trim() || 'Produk Tanpa Nama';
-    const unit = (row[uIdx] || row[9] || 'PCS').trim();
-    const qty = parseProductNumber(row[qIdx] || row[8] || '1');
-    const price = parseProductNumber(row[pIdx] || row[10] || '0');
-    const rawDate = (row[dIdx] || row[0] || '').trim();
+    const category = (row[cIdx] || row[defaultCatIdx] || '').trim() || 'Uncategorized';
+    const name = (row[nIdx] || row[defaultNameIdx] || '').trim() || 'Produk Tanpa Nama';
+    const unit = (row[uIdx] || row[defaultUnitIdx] || 'PCS').trim();
+    const qty = parseProductNumber(row[qIdx] || row[defaultQtyIdx] || '1');
+    const price = parseProductNumber(row[pIdx] || row[defaultPriceIdx] || '0');
+    const rawDate = (row[dIdx] || row[defaultDateIdx] || '').trim();
     const parsedDate = parseIndonesianDate(rawDate) || '2026-01-01';
     
-    let brand = (row[bIdx] || row[7] || '').trim();
+    let brand = (row[bIdx] || row[defaultBrandIdx] || '').trim();
     if (!brand || brand === '#N/A' || brand.toLowerCase() === 'n/a' || brand === '') {
       brand = 'No Brand';
     }

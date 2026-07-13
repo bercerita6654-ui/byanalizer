@@ -86,6 +86,17 @@ export function parseNumber(valStr: string): number {
   return isNaN(parsed) ? 0 : parsed;
 }
 
+// Parse US style formatted numbers (e.g., "29,088" or "5,000" where commas are thousands separators)
+export function parseProductNumber(valStr: string): number {
+  if (!valStr) return 0;
+  const clean = valStr
+    .replace(/Rp/gi, '')
+    .replace(/\s+/g, '')
+    .replace(/,/g, ''); // Simply strip out the commas (thousands separators)
+  const parsed = parseFloat(clean);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
 // Format numbers to Indonesian Currency
 export function formatRupiah(value: number): string {
   if (value === undefined || value === null || isNaN(value)) return 'Rp 0';
@@ -379,8 +390,8 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
     const category = (row[cIdx] || row[6] || '').trim() || 'Uncategorized';
     const name = (row[nIdx] || row[5] || '').trim() || 'Produk Tanpa Nama';
     const unit = (row[uIdx] || row[9] || 'PCS').trim();
-    const qty = parseNumber(row[qIdx] || row[8] || '1');
-    const price = parseNumber(row[pIdx] || row[10] || '0');
+    const qty = parseProductNumber(row[qIdx] || row[8] || '1');
+    const price = parseProductNumber(row[pIdx] || row[10] || '0');
     const rawDate = (row[dIdx] || row[0] || '').trim();
     const parsedDate = parseIndonesianDate(rawDate) || '2026-01-01';
     

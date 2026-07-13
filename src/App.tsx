@@ -7,6 +7,7 @@ import SalesSummary from './components/SalesSummary';
 import SalesMoM from './components/SalesMoM';
 import SalesCharts from './components/SalesCharts';
 import SalesComparison from './components/SalesComparison';
+import SalesChannelComposition from './components/SalesChannelComposition';
 import SalesCalendar from './components/SalesCalendar';
 import SalesDayOfWeek from './components/SalesDayOfWeek';
 import SalesTable from './components/SalesTable';
@@ -21,7 +22,7 @@ import {
   TrendingUp, Calendar, Table, Target, BarChart2, 
   RefreshCw, Link as LinkIcon, HelpCircle, CheckCircle2, 
   Sparkles, FileSpreadsheet, PlusCircle, AlertCircle, FileText,
-  Package, Download, X
+  Package, Download, X, GripVertical, ArrowUp, ArrowDown, RotateCcw
 } from 'lucide-react';
 
 
@@ -180,10 +181,95 @@ function patchStyleSheets(): () => void {
   };
 }
 
+const DEFAULT_DASHBOARD_ORDER = [
+  'summary',
+  'mom',
+  'comparison',
+  'channel',
+  'charts',
+  'dayofweek',
+  'heatmap'
+];
+
 export default function App() {
   const [csvUrl, setCsvUrl] = useState<string>(() => {
     return localStorage.getItem('sales_csv_url') || DEFAULT_CSV_URL;
   });
+
+  const [dashboardOrder, setDashboardOrder] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sales_dashboard_order');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const isValid = Array.isArray(parsed) && 
+                        parsed.length === DEFAULT_DASHBOARD_ORDER.length && 
+                        parsed.every(item => DEFAULT_DASHBOARD_ORDER.includes(item));
+        if (isValid) return parsed;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return DEFAULT_DASHBOARD_ORDER;
+  });
+
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [draggedOverId, setDraggedOverId] = useState<string | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedId(id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    if (draggedId && draggedId !== id) {
+      setDraggedOverId(id);
+    }
+  };
+
+  const handleDragEnd = () => {
+    if (draggedId && draggedOverId && draggedId !== draggedOverId) {
+      const oldIndex = dashboardOrder.indexOf(draggedId);
+      const newIndex = dashboardOrder.indexOf(draggedOverId);
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newOrder = [...dashboardOrder];
+        newOrder.splice(oldIndex, 1);
+        newOrder.splice(newIndex, 0, draggedId);
+        setDashboardOrder(newOrder);
+      }
+    }
+    setDraggedId(null);
+    setDraggedOverId(null);
+  };
+
+  const moveComponent = (index: number, direction: number) => {
+    const targetIndex = index + direction;
+    if (targetIndex >= 0 && targetIndex < dashboardOrder.length) {
+      const newOrder = [...dashboardOrder];
+      const temp = newOrder[index];
+      newOrder[index] = newOrder[targetIndex];
+      newOrder[targetIndex] = temp;
+      setDashboardOrder(newOrder);
+    }
+  };
+
+  const resetDashboardOrder = () => {
+    setDashboardOrder(DEFAULT_DASHBOARD_ORDER);
+  };
+
+  const dashboardLabels: { [key: string]: string } = {
+    summary: 'Ringkasan KPI',
+    mom: 'Pertumbuhan MoM',
+    comparison: 'Perbandingan Periode',
+    channel: 'Komposisi Distribusi',
+    charts: 'Grafik Omzet & Order',
+    dayofweek: 'Analisa Kinerja Hari',
+    heatmap: 'Heatmap Kepadatan'
+  };
+
+  useEffect(() => {
+    localStorage.setItem('sales_dashboard_order', JSON.stringify(dashboardOrder));
+  }, [dashboardOrder]);
   
   const [salesData, setSalesData] = useState<DailySales[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -619,6 +705,104 @@ export default function App() {
     return events.filter(e => e.date === selectedDateStr);
   }, [events, selectedDateStr]);
 
+  const renderDashboardComponent = (id: string, index: number) => {
+    const isDragged = draggedId === id;
+    const isDraggedOver = draggedOverId === id;
+    const totalCount = dashboardOrder.length;
+    const label = dashboardLabels[id] || id;
+
+    const wrapComponent = (element: React.ReactNode) => {
+      return (
+        <motion.div
+          key={id}
+          layout
+          draggable
+          onDragStart={(e) => handleDragStart(e, id)}
+          onDragOver={(e) => handleDragOver(e, id)}
+          onDragEnd={handleDragEnd}
+          className={`relative group border-2 rounded-3xl transition-all duration-300 ${
+            isDraggedOver 
+              ? 'border-indigo-400 border-dashed bg-indigo-50/20 scale-[0.99] shadow-inner' 
+              : isDragged 
+              ? 'border-slate-300 opacity-40 scale-[0.98]' 
+              : 'border-transparent'
+          }`}
+        >
+          {/* Draggable Hover Indicator / Floating Pill Control */}
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-white/95 hover:bg-white backdrop-blur-sm border border-slate-200 shadow-sm px-3 py-1.5 rounded-full text-[10px] font-black text-slate-500 select-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 no-print">
+            <div className="flex items-center gap-1 cursor-grab active:cursor-grabbing">
+              <GripVertical className="w-3.5 h-3.5 text-slate-400" />
+              <span className="uppercase tracking-wider text-[9px] font-extrabold text-indigo-950">{label}</span>
+            </div>
+            
+            <div className="h-3.5 w-px bg-slate-200 mx-1" />
+            
+            <div className="flex items-center gap-1">
+              <button 
+                disabled={index === 0} 
+                onClick={() => moveComponent(index, -1)}
+                className="p-1 hover:bg-slate-100 active:bg-slate-200 rounded-lg text-slate-600 disabled:opacity-25 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                title="Pindahkan Ke Atas"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                disabled={index === totalCount - 1} 
+                onClick={() => moveComponent(index, 1)}
+                className="p-1 hover:bg-slate-100 active:bg-slate-200 rounded-lg text-slate-600 disabled:opacity-25 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                title="Pindahkan Ke Bawah"
+              >
+                <ArrowDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Render target content */}
+          {element}
+        </motion.div>
+      );
+    };
+
+    switch (id) {
+      case 'summary':
+        return wrapComponent(<SalesSummary salesData={filteredSalesData} />);
+      case 'mom':
+        return wrapComponent(<SalesMoM salesData={salesData} />);
+      case 'comparison':
+        return wrapComponent(<SalesComparison salesData={salesData} />);
+      case 'channel':
+        return wrapComponent(
+          <div className="pt-4 border-t border-slate-200/50">
+            <SalesChannelComposition salesData={salesData} />
+          </div>
+        );
+      case 'charts':
+        return wrapComponent(
+          <div className="pt-4 border-t border-slate-200/50">
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <BarChart2 className="w-4 h-4 text-indigo-500" />
+              Grafik Analitik &amp; Fluktuasi Omzet Penjualan
+            </h3>
+            <SalesCharts salesData={filteredSalesData} />
+          </div>
+        );
+      case 'dayofweek':
+        return wrapComponent(
+          <div className="pt-4 border-t border-slate-200/50">
+            <SalesDayOfWeek salesData={filteredSalesData} />
+          </div>
+        );
+      case 'heatmap':
+        return wrapComponent(
+          <div className="pt-4 border-t border-slate-200/50">
+            <SalesHeatmap salesData={filteredSalesData} />
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col antialiased">
       
@@ -1001,27 +1185,38 @@ export default function App() {
                   </div>
                 </div>
 
-                <SalesSummary salesData={filteredSalesData} />
-                
-                <SalesMoM salesData={salesData} />
-                
-                <SalesComparison salesData={salesData} />
-
-                <div className="pt-4 border-t border-slate-200/50">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <BarChart2 className="w-4 h-4 text-indigo-500" />
-                    Grafik Analitik &amp; Fluktuasi Omzet Penjualan
-                  </h3>
-                  <SalesCharts salesData={filteredSalesData} />
+                {/* Drag and Drop Dashboard Layout Toolbar */}
+                <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 no-print shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-100/50 text-indigo-700 rounded-xl">
+                      <GripVertical className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Kustomisasi Tata Letak Dashboard</h4>
+                      <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                        Sesuaikan prioritas tampilan! Seret (drag &amp; drop) komponen menggunakan <span className="font-extrabold text-indigo-600">Grip Handle ⠿</span> di pojok kanan atas setiap kartu, atau gunakan tombol panah.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Reset order button */}
+                  {JSON.stringify(dashboardOrder) !== JSON.stringify(DEFAULT_DASHBOARD_ORDER) && (
+                    <button
+                      onClick={resetDashboardOrder}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 text-[10.5px] font-black uppercase tracking-wider rounded-xl cursor-pointer shadow-sm transition-all shrink-0"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                      Reset Urutan Default
+                    </button>
+                  )}
                 </div>
 
-                <div className="pt-4 border-t border-slate-200/50">
-                  <SalesDayOfWeek salesData={filteredSalesData} />
-                </div>
-
-                <div className="pt-4 border-t border-slate-200/50">
-                  <SalesHeatmap salesData={filteredSalesData} />
-                </div>
+                {/* Render Rearrangeable Components */}
+                {dashboardOrder.map((id, index) => (
+                  <React.Fragment key={id}>
+                    {renderDashboardComponent(id, index)}
+                  </React.Fragment>
+                ))}
               </motion.div>
             )}
 

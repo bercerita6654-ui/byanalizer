@@ -7,7 +7,8 @@ import {
   Package, Search, Filter, ArrowUpDown, Tag, Compass, 
   TrendingUp, BarChart2, DollarSign, Flame, FolderOpen, 
   RefreshCw, AlertCircle, Award, Check, SlidersHorizontal,
-  ChevronLeft, ChevronRight, Download, X, Sparkles, TrendingDown, Zap
+  ChevronLeft, ChevronRight, Download, X, Sparkles, TrendingDown, Zap,
+  Pin
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
@@ -114,6 +115,32 @@ export default function SalesProducts() {
   const [selectedCompProductASku, setSelectedCompProductASku] = useState<string>('');
   const [selectedCompProductBSku, setSelectedCompProductBSku] = useState<string>('');
   const [compMetric, setCompMetric] = useState<'qty' | 'sales'>('qty');
+
+  // Pinned Chart state for dashboard customization
+  const [pinnedChart, setPinnedChart] = useState<'top10' | 'categoryBrand' | 'comparison' | null>(() => {
+    try {
+      const saved = localStorage.getItem('dashboard_pinned_chart');
+      return (saved as 'top10' | 'categoryBrand' | 'comparison' | null) || null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const togglePinChart = (id: 'top10' | 'categoryBrand' | 'comparison') => {
+    setPinnedChart(prev => {
+      const next = prev === id ? null : id;
+      try {
+        if (next) {
+          localStorage.setItem('dashboard_pinned_chart', next);
+        } else {
+          localStorage.removeItem('dashboard_pinned_chart');
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  };
 
   // Time-based filtering states (column 2 based daily/weekly/monthly filtering)
   const [timeFilterType, setTimeFilterType] = useState<'all' | 'daily' | 'weekly' | 'monthly'>('monthly');
@@ -1678,509 +1705,593 @@ export default function SalesProducts() {
 
           </div>
 
-          {/* TOP 10 PRODUCTS VISUALIZATION (BAR CHART) */}
-          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <BarChart2 className="w-5 h-5 text-indigo-500" />
-                <div>
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Visualisasi Top 10 Produk Terlaris (Omzet)</h3>
-                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">Grafik perbandingan 10 produk terlaris. Klik pada batang grafik untuk melihat rincian tren harian dan performa produk.</p>
-                </div>
-              </div>
-              <span className="text-[9px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2.5 py-1 rounded-full uppercase tracking-wider font-black">Top 10 Omzet (Klik Bar)</span>
-            </div>
-
-            {top10ChartData.length > 0 ? (
-              <div className="h-[400px] w-full pt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={top10ChartData}
-                    layout="vertical"
-                    margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
-                  >
-                    <defs>
-                      <linearGradient id="productBarGrad" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor="#4f46e5" />
-                        <stop offset="100%" stopColor="#818cf8" />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                    <XAxis
-                      type="number"
-                      tickFormatter={(val) => formatRupiahCompact(val)}
-                      tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'bold' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="displayName"
-                      tick={{ fontSize: 9, fill: '#334155', fontWeight: 'bold' }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={160}
-                    />
-                    <Tooltip content={chartTooltip} cursor={{ fill: '#f8fafc' }} />
-                    <Bar
-                      dataKey="totalSales"
-                      fill="url(#productBarGrad)"
-                      radius={[0, 8, 8, 0]}
-                      barSize={18}
-                      cursor="pointer"
-                    >
-                      {top10ChartData.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={index === 0 ? 'url(#productBarGrad)' : index === 1 ? '#6366f1' : index === 2 ? '#818cf8' : '#c7d2fe'} 
-                          onClick={() => setSelectedTrendProductSku(entry.sku)}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="h-[200px] flex items-center justify-center text-slate-400 font-bold text-xs italic">
-                Data produk tidak tersedia untuk ditampilkan.
-              </div>
-            )}
-          </div>
-
-          {/* Section Grid: Category & Brand Share */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            
-            {/* Category Performance Share */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <FolderOpen className="w-4.5 h-4.5 text-indigo-500" />
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Kinerja per Kategori Produk</h3>
-                </div>
-                <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-bold uppercase tracking-wider">Diurutkan Omzet</span>
-              </div>
-
-              <div className="space-y-3.5 max-h-[280px] overflow-y-auto pr-1">
-                {stats.categorySummary.map((cat, idx) => {
-                  const pct = stats.totalRevenue > 0 ? (cat.revenue / stats.totalRevenue) * 100 : 0;
-                  return (
-                    <div 
-                      key={cat.name} 
-                      className="space-y-1.5 cursor-pointer hover:bg-slate-50 p-2 -mx-2 rounded-2xl transition-all border border-transparent hover:border-slate-100"
-                      onClick={() => setSelectedCategoryDetail(cat.name)}
-                      title={`Klik untuk melihat detail rincian & tren kategori ${cat.name}`}
-                    >
-                      <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="w-4 h-4 flex items-center justify-center text-[10px] font-extrabold bg-indigo-50 text-indigo-600 rounded-md shrink-0 border border-indigo-100/60">
-                            {idx + 1}
-                          </span>
-                          <span className="truncate text-slate-800 font-extrabold">{cat.name}</span>
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0 text-right font-mono">
-                          <span className="text-slate-400 text-[10px]">{formatNumberIndo(cat.qty)} pcs</span>
-                          <span className="text-indigo-600 font-black">{formatRupiah(cat.revenue)}</span>
-                          <span className="text-[10px] text-indigo-500 font-black min-w-[36px] bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100/30">{pct.toFixed(1)}%</span>
+          {/* CHARTS CONTAINER with pinning support */}
+          {(() => {
+            const chartBlocks = [
+              {
+                id: 'top10',
+                el: (
+                  <div key="top10" className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2">
+                        <BarChart2 className="w-5 h-5 text-indigo-500" />
+                        <div>
+                          <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Visualisasi Top 10 Produk Terlaris (Omzet)</h3>
+                          <p className="text-[10px] text-slate-400 font-bold mt-0.5">Grafik perbandingan 10 produk terlaris. Klik pada batang grafik untuk melihat rincian tren harian dan performa produk.</p>
                         </div>
                       </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-indigo-500 rounded-full transition-all"
-                          style={{ width: `${pct}%` }}
-                        />
+                      <div className="flex items-center gap-2.5 self-end sm:self-auto">
+                        <span className="text-[9px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2.5 py-1 rounded-full uppercase tracking-wider font-black">Top 10 Omzet (Klik Bar)</span>
+                        <button
+                          type="button"
+                          onClick={() => togglePinChart('top10')}
+                          title={pinnedChart === 'top10' ? "Lepas Pin" : "Sematkan di Atas"}
+                          className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                            pinnedChart === 'top10'
+                              ? 'bg-amber-500 border-amber-600 text-white shadow-sm hover:bg-amber-600'
+                              : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                          }`}
+                        >
+                          <Pin className={`w-3.5 h-3.5 ${pinnedChart === 'top10' ? 'fill-current' : ''}`} />
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
 
-            {/* Brand Performance Share */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <Award className="w-4.5 h-4.5 text-indigo-500" />
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Kinerja per Merk / Brand</h3>
-                </div>
-                {selectedBrand !== 'all' ? (
-                  <button 
-                    onClick={() => setSelectedBrand('all')}
-                    className="text-[9px] bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-600 px-2.5 py-1 rounded-lg font-black uppercase tracking-wider transition-all cursor-pointer"
-                  >
-                    Batal Filter
-                  </button>
-                ) : (
-                  <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-bold uppercase tracking-wider">Dominasi Brand (Donut)</span>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-                {/* Donut Chart */}
-                <div className="md:col-span-5 h-[230px] flex items-center justify-center relative">
-                  {brandPieChartData.length > 0 ? (
-                    <>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={brandPieChartData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={50}
-                            outerRadius={75}
-                            paddingAngle={3}
-                            dataKey="revenue"
+                    {top10ChartData.length > 0 ? (
+                      <div className="h-[400px] w-full pt-2">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={top10ChartData}
+                            layout="vertical"
+                            margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
                           >
-                            {brandPieChartData.map((entry, index) => {
-                              const isSelected = selectedBrand === entry.name;
-                              const hasSelection = selectedBrand !== 'all';
-                              const baseColor = BRAND_COLORS[index % BRAND_COLORS.length];
-                              return (
+                            <defs>
+                              <linearGradient id="productBarGrad" x1="0" y1="0" x2="1" y2="0">
+                                <stop offset="0%" stopColor="#4f46e5" />
+                                <stop offset="100%" stopColor="#818cf8" />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                            <XAxis
+                              type="number"
+                              tickFormatter={(val) => formatRupiahCompact(val)}
+                              tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'bold' }}
+                              axisLine={false}
+                              tickLine={false}
+                            />
+                            <YAxis
+                              type="category"
+                              dataKey="displayName"
+                              tick={{ fontSize: 9, fill: '#334155', fontWeight: 'bold' }}
+                              axisLine={false}
+                              tickLine={false}
+                              width={160}
+                            />
+                            <Tooltip content={chartTooltip} cursor={{ fill: '#f8fafc' }} />
+                            <Bar
+                              dataKey="totalSales"
+                              fill="url(#productBarGrad)"
+                              radius={[0, 8, 8, 0]}
+                              barSize={18}
+                              cursor="pointer"
+                            >
+                              {top10ChartData.map((entry, index) => (
                                 <Cell 
                                   key={`cell-${index}`} 
-                                  fill={baseColor} 
-                                  stroke={isSelected ? '#1e293b' : '#fff'}
-                                  strokeWidth={isSelected ? 3 : 1}
-                                  opacity={hasSelection ? (isSelected ? 1 : 0.4) : 1}
-                                  onClick={() => handleBrandClick(entry.name)}
-                                  className="cursor-pointer outline-none transition-all duration-200"
+                                  fill={index === 0 ? 'url(#productBarGrad)' : index === 1 ? '#6366f1' : index === 2 ? '#818cf8' : '#c7d2fe'} 
+                                  onClick={() => setSelectedTrendProductSku(entry.sku)}
                                 />
-                              );
-                            })}
-                          </Pie>
-                          <Tooltip content={brandPieTooltip} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      {/* Absolute Center Text */}
-                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4 text-center">
-                        {selectedBrand !== 'all' ? (
-                          <>
-                            <span className="text-[8px] uppercase font-black tracking-wider text-indigo-500">Filter Aktif</span>
-                            <span className="text-[11px] font-black text-slate-800 mt-0.5 truncate max-w-[100px]" title={selectedBrand}>
-                              {selectedBrand}
-                            </span>
-                            <span className="text-[8px] text-slate-400 font-bold mt-0.5">Klik untuk reset</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-[9px] uppercase font-black tracking-wider text-slate-400">Total Brand</span>
-                            <span className="text-xs font-black text-slate-700 mt-0.5">{stats.brandSummary.length} Merk</span>
-                          </>
-                        )}
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
                       </div>
-                    </>
-                  ) : (
-                    <span className="text-slate-400 text-xs italic font-bold">Tidak ada data</span>
-                  )}
-                </div>
-
-                {/* Brand List */}
-                <div className="md:col-span-7 space-y-2 max-h-[250px] overflow-y-auto pr-1">
-                  {stats.brandSummary.map((br, idx) => {
-                    const pct = stats.totalRevenue > 0 ? (br.revenue / stats.totalRevenue) * 100 : 0;
-                    const color = BRAND_COLORS[idx % BRAND_COLORS.length] || '#94a3b8';
-                    const isSelected = selectedBrand === br.name;
-                    const hasSelection = selectedBrand !== 'all';
-                    return (
-                      <div 
-                        key={br.name} 
-                        onClick={() => handleBrandClick(br.name)}
-                        className={`space-y-1 p-2 rounded-xl transition-all cursor-pointer border ${
-                          isSelected 
-                            ? 'bg-indigo-50/70 border-indigo-200 shadow-sm' 
-                            : 'border-transparent hover:bg-slate-50'
-                        } ${hasSelection && !isSelected ? 'opacity-40 hover:opacity-75' : ''}`}
-                      >
-                        <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold text-slate-700">
-                          <div className="flex items-center gap-1.5 truncate">
-                            <span 
-                              className="w-4 h-4 flex items-center justify-center text-[9px] font-extrabold text-white rounded shrink-0"
-                              style={{ backgroundColor: color }}
-                            >
-                              {idx + 1}
-                            </span>
-                            <span className="truncate" title={br.name}>{br.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2.5 shrink-0 text-right font-mono">
-                            <span className="text-slate-400 text-[10px]">{formatNumberIndo(br.qty)} pcs</span>
-                            <span className="text-slate-600 font-extrabold">{formatRupiah(br.revenue)}</span>
-                            <span className="text-[10px] text-indigo-600 font-black min-w-[32px]">{pct.toFixed(1)}%</span>
-                          </div>
-                        </div>
-                        <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full rounded-full transition-all"
-                            style={{ 
-                              width: `${pct}%`,
-                              backgroundColor: color
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          {/* PANEL PERBANDINGAN PRODUK SECARA BERDAMPINGAN */}
-          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-xl">
-                  <ArrowUpDown className="w-5 h-5 text-indigo-500" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Perbandingan Produk Secara Berdampingan</h3>
-                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">Bandingkan tren volume penjualan dan omzet antara dua produk dalam periode waktu yang sama</p>
-                </div>
-              </div>
-              
-              {/* Metric Select Toggle */}
-              <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200/50 self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setCompMetric('qty')}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                    compMetric === 'qty'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  Volume (Qty)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCompMetric('sales')}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                    compMetric === 'sales'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  Omzet (IDR)
-                </button>
-              </div>
-            </div>
-
-            {/* Selection Dropdowns Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
-              {/* Product A Selector */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                  Produk Pertama (A):
-                </span>
-                <select
-                  value={selectedCompProductASku}
-                  onChange={e => setSelectedCompProductASku(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700"
-                >
-                  <option value="" disabled>Pilih Produk A</option>
-                  {comparisonProductOptions.map(prod => (
-                    <option key={`comp-a-${prod.sku}`} value={prod.sku}>
-                      [{prod.sku}] {prod.name} ({formatNumberIndo(prod.totalQty)} pcs)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Product B Selector */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Produk Kedua (B):
-                </span>
-                <select
-                  value={selectedCompProductBSku}
-                  onChange={e => setSelectedCompProductBSku(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700"
-                >
-                  <option value="" disabled>Pilih Produk B</option>
-                  {comparisonProductOptions.map(prod => (
-                    <option key={`comp-b-${prod.sku}`} value={prod.sku}>
-                      [{prod.sku}] {prod.name} ({formatNumberIndo(prod.totalQty)} pcs)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Comparison Cards Side-by-Side & Combined Chart */}
-            {selectedCompProductA && selectedCompProductB ? (
-              <div className="space-y-6 animate-fade-in">
-                {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  {/* Card Product A */}
-                  <div className="bg-gradient-to-br from-indigo-50/45 to-white border border-indigo-100 rounded-2xl p-5 space-y-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="text-[9px] bg-indigo-100 text-indigo-700 font-black px-2 py-0.5 rounded uppercase font-mono">
-                          Produk A - {selectedCompProductA.sku}
-                        </span>
-                        <h4 className="text-xs font-black text-slate-800 mt-2 line-clamp-2 min-h-[2rem]">
-                          {selectedCompProductA.name}
-                        </h4>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
-                        <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductA.brand}</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3 pt-2 border-t border-indigo-100/40">
-                      <div className="bg-white p-3 rounded-xl border border-slate-100">
-                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
-                        <p className="text-xs font-black text-slate-800 mt-1 font-mono">
-                          {formatNumberIndo(selectedCompProductA.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductA.unit}</span>
-                        </p>
-                      </div>
-                      <div className="bg-white p-3 rounded-xl border border-slate-100">
-                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
-                        <p className="text-xs font-black text-indigo-600 mt-1 font-mono truncate">
-                          {formatRupiah(selectedCompProductA.totalSales)}
-                        </p>
-                      </div>
-                      <div className="bg-white p-3 rounded-xl border border-slate-100">
-                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
-                        <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
-                          {formatRupiah(selectedCompProductA.totalQty > 0 ? selectedCompProductA.totalSales / selectedCompProductA.totalQty : 0)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Contribution Share Badge */}
-                    {stats && (
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-indigo-100/30">
-                        <span>Kontribusi Toko:</span>
-                        <span className="text-indigo-600 font-black">
-                          {((selectedCompProductA.totalSales / (stats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Card Product B */}
-                  <div className="bg-gradient-to-br from-emerald-50/45 to-white border border-emerald-100 rounded-2xl p-5 space-y-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="text-[9px] bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded uppercase font-mono">
-                          Produk B - {selectedCompProductB.sku}
-                        </span>
-                        <h4 className="text-xs font-black text-slate-800 mt-2 line-clamp-2 min-h-[2rem]">
-                          {selectedCompProductB.name}
-                        </h4>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
-                        <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductB.brand}</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3 pt-2 border-t border-emerald-100/40">
-                      <div className="bg-white p-3 rounded-xl border border-slate-100">
-                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
-                        <p className="text-xs font-black text-slate-800 mt-1 font-mono">
-                          {formatNumberIndo(selectedCompProductB.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductB.unit}</span>
-                        </p>
-                      </div>
-                      <div className="bg-white p-3 rounded-xl border border-slate-100">
-                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
-                        <p className="text-xs font-black text-emerald-600 mt-1 font-mono truncate">
-                          {formatRupiah(selectedCompProductB.totalSales)}
-                        </p>
-                      </div>
-                      <div className="bg-white p-3 rounded-xl border border-slate-100">
-                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
-                        <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
-                          {formatRupiah(selectedCompProductB.totalQty > 0 ? selectedCompProductB.totalSales / selectedCompProductB.totalQty : 0)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Contribution Share Badge */}
-                    {stats && (
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-emerald-100/30">
-                        <span>Kontribusi Toko:</span>
-                        <span className="text-emerald-600 font-black">
-                          {((selectedCompProductB.totalSales / (stats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Combined Trend Chart */}
-                <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-100">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
-                      <BarChart2 className="w-4 h-4 text-indigo-500" />
-                      Visualisasi Tren Perbandingan ({compMetric === 'qty' ? 'Volume Unit' : 'Nilai Omzet'})
-                    </h4>
-                    <span className="text-[8px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded font-black uppercase">
-                      Rentang Waktu Sama
-                    </span>
-                  </div>
-
-                  <div className="h-72 w-full pt-1">
-                    {comparisonChartData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={comparisonChartData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                          <XAxis 
-                            dataKey="formattedDate" 
-                            tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'bold' }} 
-                            axisLine={false} 
-                            tickLine={false} 
-                          />
-                          <YAxis 
-                            tick={{ fontSize: 9, fill: '#475569', fontWeight: 'bold' }} 
-                            axisLine={false} 
-                            tickLine={false} 
-                            tickFormatter={(v) => compMetric === 'sales' ? formatRupiahCompact(v) : formatNumberIndo(v)}
-                          />
-                          <Tooltip content={comparisonTooltip} />
-                          <Legend 
-                            verticalAlign="top" 
-                            height={36} 
-                            iconType="circle" 
-                            wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} 
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey={compMetric === 'qty' ? 'qtyA' : 'salesA'} 
-                            name={`[A] ${selectedCompProductA.name.substring(0, 20)}...`} 
-                            stroke="#6366f1" 
-                            strokeWidth={3}
-                            activeDot={{ r: 6 }} 
-                            dot={{ strokeWidth: 1 }}
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey={compMetric === 'qty' ? 'qtyB' : 'salesB'} 
-                            name={`[B] ${selectedCompProductB.name.substring(0, 20)}...`} 
-                            stroke="#10b981" 
-                            strokeWidth={3}
-                            activeDot={{ r: 6 }} 
-                            dot={{ strokeWidth: 1 }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
                     ) : (
-                      <div className="h-full flex items-center justify-center text-slate-400 italic text-xs font-bold">
-                        Pilih dua produk di atas untuk memuat grafik tren performa.
+                      <div className="h-[200px] flex items-center justify-center text-slate-400 font-bold text-xs italic">
+                        Data produk tidak tersedia untuk ditampilkan.
                       </div>
                     )}
                   </div>
-                </div>
+                )
+              },
+              {
+                id: 'categoryBrand',
+                el: (
+                  <div key="categoryBrand" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Category Performance Share */}
+                    <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <FolderOpen className="w-4.5 h-4.5 text-indigo-500" />
+                          <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Kinerja per Kategori Produk</h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-bold uppercase tracking-wider">Diurutkan Omzet</span>
+                          <button
+                            type="button"
+                            onClick={() => togglePinChart('categoryBrand')}
+                            title={pinnedChart === 'categoryBrand' ? "Lepas Pin" : "Sematkan di Atas"}
+                            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                              pinnedChart === 'categoryBrand'
+                                ? 'bg-amber-500 border-amber-600 text-white shadow-sm hover:bg-amber-600'
+                                : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                            }`}
+                          >
+                            <Pin className={`w-3.5 h-3.5 ${pinnedChart === 'categoryBrand' ? 'fill-current' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3.5 max-h-[280px] overflow-y-auto pr-1">
+                        {stats.categorySummary.map((cat, idx) => {
+                          const pct = stats.totalRevenue > 0 ? (cat.revenue / stats.totalRevenue) * 100 : 0;
+                          return (
+                            <div 
+                              key={cat.name} 
+                              className="space-y-1.5 cursor-pointer hover:bg-slate-50 p-2 -mx-2 rounded-2xl transition-all border border-transparent hover:border-slate-100"
+                              onClick={() => setSelectedCategoryDetail(cat.name)}
+                              title={`Klik untuk melihat detail rincian & tren kategori ${cat.name}`}
+                            >
+                              <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="w-4 h-4 flex items-center justify-center text-[10px] font-extrabold bg-indigo-50 text-indigo-600 rounded-md shrink-0 border border-indigo-100/60">
+                                    {idx + 1}
+                                  </span>
+                                  <span className="truncate text-slate-800 font-extrabold">{cat.name}</span>
+                                </div>
+                                <div className="flex items-center gap-3 shrink-0 text-right font-mono">
+                                  <span className="text-slate-400 text-[10px]">{formatNumberIndo(cat.qty)} pcs</span>
+                                  <span className="text-indigo-600 font-black">{formatRupiah(cat.revenue)}</span>
+                                  <span className="text-[10px] text-indigo-500 font-black min-w-[36px] bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100/30">{pct.toFixed(1)}%</span>
+                                </div>
+                              </div>
+                              <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-indigo-500 rounded-full transition-all"
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Brand Performance Share */}
+                    <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Award className="w-4.5 h-4.5 text-indigo-500" />
+                          <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Kinerja per Merk / Brand</h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {selectedBrand !== 'all' ? (
+                            <button 
+                              type="button"
+                              onClick={() => setSelectedBrand('all')}
+                              className="text-[9px] bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-600 px-2.5 py-1 rounded-lg font-black uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                              Batal Filter
+                            </button>
+                          ) : (
+                            <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-bold uppercase tracking-wider">Dominasi Brand (Donut)</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => togglePinChart('categoryBrand')}
+                            title={pinnedChart === 'categoryBrand' ? "Lepas Pin" : "Sematkan di Atas"}
+                            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                              pinnedChart === 'categoryBrand'
+                                ? 'bg-amber-500 border-amber-600 text-white shadow-sm hover:bg-amber-600'
+                                : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                            }`}
+                          >
+                            <Pin className={`w-3.5 h-3.5 ${pinnedChart === 'categoryBrand' ? 'fill-current' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                        {/* Donut Chart */}
+                        <div className="md:col-span-5 h-[230px] flex items-center justify-center relative">
+                          {brandPieChartData.length > 0 ? (
+                            <>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={brandPieChartData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={50}
+                                    outerRadius={75}
+                                    paddingAngle={3}
+                                    dataKey="revenue"
+                                  >
+                                    {brandPieChartData.map((entry, index) => {
+                                      const isSelected = selectedBrand === entry.name;
+                                      const hasSelection = selectedBrand !== 'all';
+                                      const baseColor = BRAND_COLORS[index % BRAND_COLORS.length];
+                                      return (
+                                        <Cell 
+                                          key={`cell-${index}`} 
+                                          fill={baseColor} 
+                                          stroke={isSelected ? '#1e293b' : '#fff'}
+                                          strokeWidth={isSelected ? 3 : 1}
+                                          opacity={hasSelection ? (isSelected ? 1 : 0.4) : 1}
+                                          onClick={() => handleBrandClick(entry.name)}
+                                          className="cursor-pointer outline-none transition-all duration-200"
+                                        />
+                                      );
+                                    })}
+                                  </Pie>
+                                  <Tooltip content={brandPieTooltip} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                              {/* Absolute Center Text */}
+                              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4 text-center">
+                                {selectedBrand !== 'all' ? (
+                                  <>
+                                    <span className="text-[8px] uppercase font-black tracking-wider text-indigo-500">Filter Aktif</span>
+                                    <span className="text-[11px] font-black text-slate-800 mt-0.5 truncate max-w-[100px]" title={selectedBrand}>
+                                      {selectedBrand}
+                                    </span>
+                                    <span className="text-[8px] text-slate-400 font-bold mt-0.5">Klik untuk reset</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="text-[9px] uppercase font-black tracking-wider text-slate-400">Total Brand</span>
+                                    <span className="text-xs font-black text-slate-700 mt-0.5">{stats.brandSummary.length} Merk</span>
+                                  </>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-slate-400 text-xs italic font-bold">Tidak ada data</span>
+                          )}
+                        </div>
+
+                        {/* Brand List */}
+                        <div className="md:col-span-7 space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                          {stats.brandSummary.map((br, idx) => {
+                            const pct = stats.totalRevenue > 0 ? (br.revenue / stats.totalRevenue) * 100 : 0;
+                            const color = BRAND_COLORS[idx % BRAND_COLORS.length] || '#94a3b8';
+                            const isSelected = selectedBrand === br.name;
+                            const hasSelection = selectedBrand !== 'all';
+                            return (
+                              <div 
+                                key={br.name} 
+                                onClick={() => handleBrandClick(br.name)}
+                                className={`space-y-1 p-2 rounded-xl transition-all cursor-pointer border ${
+                                  isSelected 
+                                    ? 'bg-indigo-50/70 border-indigo-200 shadow-sm' 
+                                    : 'border-transparent hover:bg-slate-50'
+                                } ${hasSelection && !isSelected ? 'opacity-40 hover:opacity-75' : ''}`}
+                              >
+                                <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold text-slate-700">
+                                  <div className="flex items-center gap-1.5 truncate">
+                                    <span 
+                                      className="w-4 h-4 flex items-center justify-center text-[9px] font-extrabold text-white rounded shrink-0"
+                                      style={{ backgroundColor: color }}
+                                    >
+                                      {idx + 1}
+                                    </span>
+                                    <span className="truncate" title={br.name}>{br.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2.5 shrink-0 text-right font-mono">
+                                    <span className="text-slate-400 text-[10px]">{formatNumberIndo(br.qty)} pcs</span>
+                                    <span className="text-slate-600 font-extrabold">{formatRupiah(br.revenue)}</span>
+                                    <span className="text-[10px] text-indigo-600 font-black min-w-[32px]">{pct.toFixed(1)}%</span>
+                                  </div>
+                                </div>
+                                <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full rounded-full transition-all"
+                                    style={{ 
+                                      width: `${pct}%`,
+                                      backgroundColor: color
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              },
+              {
+                id: 'comparison',
+                el: (
+                  <div key="comparison" className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-xl">
+                          <ArrowUpDown className="w-5 h-5 text-indigo-500" />
+                        </div>
+                        <div>
+                          <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Perbandingan Produk Secara Berdampingan</h3>
+                          <p className="text-[10px] text-slate-400 font-bold mt-0.5">Bandingkan tren volume penjualan dan omzet antara dua produk dalam periode waktu yang sama</p>
+                        </div>
+                      </div>
+                      
+                      {/* Metric Select Toggle & Pin Button */}
+                      <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200/50">
+                          <button
+                            type="button"
+                            onClick={() => setCompMetric('qty')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              compMetric === 'qty'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                          >
+                            Volume (Qty)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCompMetric('sales')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              compMetric === 'sales'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                          >
+                            Omzet (IDR)
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => togglePinChart('comparison')}
+                          title={pinnedChart === 'comparison' ? "Lepas Pin" : "Sematkan di Atas"}
+                          className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                            pinnedChart === 'comparison'
+                              ? 'bg-amber-500 border-amber-600 text-white shadow-sm hover:bg-amber-600'
+                              : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                          }`}
+                        >
+                          <Pin className={`w-3.5 h-3.5 ${pinnedChart === 'comparison' ? 'fill-current' : ''}`} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Selection Dropdowns Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                      {/* Product A Selector */}
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                          Produk Pertama (A):
+                        </span>
+                        <select
+                          value={selectedCompProductASku}
+                          onChange={e => setSelectedCompProductASku(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700"
+                        >
+                          <option value="" disabled>Pilih Produk A</option>
+                          {comparisonProductOptions.map(prod => (
+                            <option key={`comp-a-${prod.sku}`} value={prod.sku}>
+                              [{prod.sku}] {prod.name} ({formatNumberIndo(prod.totalQty)} pcs)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Product B Selector */}
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Produk Kedua (B):
+                        </span>
+                        <select
+                          value={selectedCompProductBSku}
+                          onChange={e => setSelectedCompProductBSku(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700"
+                        >
+                          <option value="" disabled>Pilih Produk B</option>
+                          {comparisonProductOptions.map(prod => (
+                            <option key={`comp-b-${prod.sku}`} value={prod.sku}>
+                              [{prod.sku}] {prod.name} ({formatNumberIndo(prod.totalQty)} pcs)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Comparison Cards Side-by-Side & Combined Chart */}
+                    {selectedCompProductA && selectedCompProductB ? (
+                      <div className="space-y-6 animate-fade-in">
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          {/* Card Product A */}
+                          <div className="bg-gradient-to-br from-indigo-50/45 to-white border border-indigo-100 rounded-2xl p-5 space-y-4">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <span className="text-[9px] bg-indigo-100 text-indigo-700 font-black px-2 py-0.5 rounded uppercase font-mono">
+                                  Produk A - {selectedCompProductA.sku}
+                                </span>
+                                <h4 className="text-xs font-black text-slate-800 mt-2 line-clamp-2 min-h-[2rem]">
+                                  {selectedCompProductA.name}
+                                </h4>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
+                                <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductA.brand}</span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-indigo-100/40">
+                              <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
+                                <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                                  {formatNumberIndo(selectedCompProductA.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductA.unit}</span>
+                                </p>
+                              </div>
+                              <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
+                                <p className="text-xs font-black text-indigo-600 mt-1 font-mono truncate">
+                                  {formatRupiah(selectedCompProductA.totalSales)}
+                                </p>
+                              </div>
+                              <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
+                                <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
+                                  {formatRupiah(selectedCompProductA.totalQty > 0 ? selectedCompProductA.totalSales / selectedCompProductA.totalQty : 0)}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Contribution Share Badge */}
+                            {stats && (
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-indigo-100/30">
+                                <span>Kontribusi Toko:</span>
+                                <span className="text-indigo-600 font-black">
+                                  {((selectedCompProductA.totalSales / (stats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Card Product B */}
+                          <div className="bg-gradient-to-br from-emerald-50/45 to-white border border-emerald-100 rounded-2xl p-5 space-y-4">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <span className="text-[9px] bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded uppercase font-mono">
+                                  Produk B - {selectedCompProductB.sku}
+                                </span>
+                                <h4 className="text-xs font-black text-slate-800 mt-2 line-clamp-2 min-h-[2rem]">
+                                  {selectedCompProductB.name}
+                                </h4>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
+                                <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductB.brand}</span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-emerald-100/40">
+                              <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
+                                <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                                  {formatNumberIndo(selectedCompProductB.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductB.unit}</span>
+                                </p>
+                              </div>
+                              <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
+                                <p className="text-xs font-black text-emerald-600 mt-1 font-mono truncate">
+                                  {formatRupiah(selectedCompProductB.totalSales)}
+                                </p>
+                              </div>
+                              <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
+                                <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
+                                  {formatRupiah(selectedCompProductB.totalQty > 0 ? selectedCompProductB.totalSales / selectedCompProductB.totalQty : 0)}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Contribution Share Badge */}
+                            {stats && (
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-emerald-100/30">
+                                <span>Kontribusi Toko:</span>
+                                <span className="text-emerald-600 font-black">
+                                  {((selectedCompProductB.totalSales / (stats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Combined Trend Chart */}
+                        <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-100">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                              <BarChart2 className="w-4 h-4 text-indigo-500" />
+                              Visualisasi Tren Perbandingan ({compMetric === 'qty' ? 'Volume Unit' : 'Nilai Omzet'})
+                            </h4>
+                            <span className="text-[8px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded font-black uppercase">
+                              Rentang Waktu Sama
+                            </span>
+                          </div>
+
+                          <div className="h-72 w-full pt-1">
+                            {comparisonChartData.length > 0 ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={comparisonChartData}>
+                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                  <XAxis 
+                                    dataKey="formattedDate" 
+                                    tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'bold' }} 
+                                    axisLine={false} 
+                                    tickLine={false} 
+                                  />
+                                  <YAxis 
+                                    tick={{ fontSize: 9, fill: '#475569', fontWeight: 'bold' }} 
+                                    axisLine={false} 
+                                    tickLine={false} 
+                                    tickFormatter={(v) => compMetric === 'sales' ? formatRupiahCompact(v) : formatNumberIndo(v)}
+                                  />
+                                  <Tooltip content={comparisonTooltip} />
+                                  <Legend 
+                                    verticalAlign="top" 
+                                    height={36} 
+                                    iconType="circle" 
+                                    wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} 
+                                  />
+                                  <Line 
+                                    type="monotone" 
+                                    dataKey={compMetric === 'qty' ? 'qtyA' : 'salesA'} 
+                                    name={`[A] ${selectedCompProductA.name.substring(0, 20)}...`} 
+                                    stroke="#6366f1" 
+                                    strokeWidth={3}
+                                    activeDot={{ r: 6 }} 
+                                    dot={{ strokeWidth: 1 }}
+                                  />
+                                  <Line 
+                                    type="monotone" 
+                                    dataKey={compMetric === 'qty' ? 'qtyB' : 'salesB'} 
+                                    name={`[B] ${selectedCompProductB.name.substring(0, 20)}...`} 
+                                    stroke="#10b981" 
+                                    strokeWidth={3}
+                                    activeDot={{ r: 6 }} 
+                                    dot={{ strokeWidth: 1 }}
+                                  />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div className="h-full flex items-center justify-center text-slate-400 italic text-xs font-bold">
+                                Pilih dua produk di atas untuk memuat grafik tren performa.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-10 bg-slate-50 rounded-2xl border border-slate-100 text-slate-400 font-bold text-xs italic">
+                        Pilih dua produk di atas untuk memulai analisa perbandingan.
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+            ];
+
+            const orderedBlocks = pinnedChart 
+              ? [
+                  chartBlocks.find(b => b.id === pinnedChart)!,
+                  ...chartBlocks.filter(b => b.id !== pinnedChart)
+                ]
+              : chartBlocks;
+
+            return (
+              <div className="space-y-6">
+                {orderedBlocks.map(block => block.el)}
               </div>
-            ) : (
-              <div className="text-center py-10 bg-slate-50 rounded-2xl border border-slate-100 text-slate-400 font-bold text-xs italic">
-                Pilih dua produk di atas untuk memulai analisa perbandingan.
-              </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* PANEL KALKULATOR MARGIN & PROFIT */}
           <div id="margin-calculator-section" className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-6">

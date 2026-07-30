@@ -116,6 +116,10 @@ export default function SalesProducts() {
   const [selectedCompProductASku, setSelectedCompProductASku] = useState<string>('');
   const [selectedCompProductBSku, setSelectedCompProductBSku] = useState<string>('');
   const [compMetric, setCompMetric] = useState<'qty' | 'sales'>('qty');
+  const [compSearchA, setCompSearchA] = useState<string>('');
+  const [compDropdownOpenA, setCompDropdownOpenA] = useState<boolean>(false);
+  const [compSearchB, setCompSearchB] = useState<string>('');
+  const [compDropdownOpenB, setCompDropdownOpenB] = useState<boolean>(false);
 
   // Pinned Chart state for dashboard customization
   const [pinnedChart, setPinnedChart] = useState<'top10' | 'categoryBrand' | 'comparison' | null>(() => {
@@ -870,6 +874,18 @@ export default function SalesProducts() {
   const comparisonProductOptions = useMemo(() => {
     return [...aggregatedProducts].sort((a, b) => b.totalSales - a.totalSales);
   }, [aggregatedProducts]);
+
+  const filteredCompOptionsA = useMemo(() => {
+    if (!compSearchA.trim()) return comparisonProductOptions.slice(0, 50);
+    const q = compSearchA.toLowerCase();
+    return comparisonProductOptions.filter(p => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)).slice(0, 50);
+  }, [comparisonProductOptions, compSearchA]);
+
+  const filteredCompOptionsB = useMemo(() => {
+    if (!compSearchB.trim()) return comparisonProductOptions.slice(0, 50);
+    const q = compSearchB.toLowerCase();
+    return comparisonProductOptions.filter(p => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)).slice(0, 50);
+  }, [comparisonProductOptions, compSearchB]);
 
   // Selected product A & B details
   const selectedCompProductA = useMemo(() => {
@@ -2089,46 +2105,148 @@ export default function SalesProducts() {
                       </div>
                     </div>
 
-                    {/* Selection Dropdowns Grid */}
+                    {/* Selection Searchable Inputs Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
                       {/* Product A Selector */}
-                      <div className="flex flex-col gap-1.5">
-                        <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                          Produk Pertama (A):
+                      <div className="flex flex-col gap-1.5 relative">
+                        <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider flex items-center justify-between">
+                          <span className="flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                            Produk Pertama (A):
+                          </span>
+                          {selectedCompProductA && (
+                            <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={`[${selectedCompProductA.sku}] ${selectedCompProductA.name}`}>
+                              Terpilih: [{selectedCompProductA.sku}] {selectedCompProductA.name}
+                            </span>
+                          )}
                         </span>
-                        <select
-                          value={selectedCompProductASku}
-                          onChange={e => setSelectedCompProductASku(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700"
-                        >
-                          <option value="" disabled>Pilih Produk A</option>
-                          {comparisonProductOptions.map(prod => (
-                            <option key={`comp-a-${prod.sku}`} value={prod.sku}>
-                              [{prod.sku}] {prod.name} ({formatNumberIndo(prod.totalQty)} pcs)
-                            </option>
-                          ))}
-                        </select>
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Ketik untuk cari SKU atau Nama Produk A..."
+                            value={compSearchA}
+                            onChange={e => {
+                              setCompSearchA(e.target.value);
+                              setCompDropdownOpenA(true);
+                            }}
+                            onFocus={() => setCompDropdownOpenA(true)}
+                            className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
+                          />
+                          {compSearchA && (
+                            <button
+                              type="button"
+                              onClick={() => setCompSearchA('')}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                        {compDropdownOpenA && (
+                          <>
+                            <div 
+                              className="fixed inset-0 z-20" 
+                              onClick={() => setCompDropdownOpenA(false)} 
+                            />
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
+                              {filteredCompOptionsA.length > 0 ? (
+                                filteredCompOptionsA.map(prod => (
+                                  <div
+                                    key={`comp-opt-a-${prod.sku}`}
+                                    onClick={() => {
+                                      setSelectedCompProductASku(prod.sku);
+                                      setCompSearchA('');
+                                      setCompDropdownOpenA(false);
+                                    }}
+                                    className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-indigo-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
+                                      prod.sku === selectedCompProductASku ? 'bg-indigo-50 font-black text-indigo-700' : 'text-slate-700 font-medium'
+                                    }`}
+                                  >
+                                    <div className="truncate pr-2">
+                                      <span className="font-mono font-bold text-indigo-600 mr-1.5">[{prod.sku}]</span>
+                                      <span>{prod.name}</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatNumberIndo(prod.totalQty)} pcs</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="px-4 py-3 text-xs text-slate-400 text-center">Produk tidak ditemukan</div>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       {/* Product B Selector */}
-                      <div className="flex flex-col gap-1.5">
-                        <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                          Produk Kedua (B):
+                      <div className="flex flex-col gap-1.5 relative">
+                        <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center justify-between">
+                          <span className="flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Produk Kedua (B):
+                          </span>
+                          {selectedCompProductB && (
+                            <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={`[${selectedCompProductB.sku}] ${selectedCompProductB.name}`}>
+                              Terpilih: [{selectedCompProductB.sku}] {selectedCompProductB.name}
+                            </span>
+                          )}
                         </span>
-                        <select
-                          value={selectedCompProductBSku}
-                          onChange={e => setSelectedCompProductBSku(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700"
-                        >
-                          <option value="" disabled>Pilih Produk B</option>
-                          {comparisonProductOptions.map(prod => (
-                            <option key={`comp-b-${prod.sku}`} value={prod.sku}>
-                              [{prod.sku}] {prod.name} ({formatNumberIndo(prod.totalQty)} pcs)
-                            </option>
-                          ))}
-                        </select>
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Ketik untuk cari SKU atau Nama Produk B..."
+                            value={compSearchB}
+                            onChange={e => {
+                              setCompSearchB(e.target.value);
+                              setCompDropdownOpenB(true);
+                            }}
+                            onFocus={() => setCompDropdownOpenB(true)}
+                            className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
+                          />
+                          {compSearchB && (
+                            <button
+                              type="button"
+                              onClick={() => setCompSearchB('')}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                        {compDropdownOpenB && (
+                          <>
+                            <div 
+                              className="fixed inset-0 z-20" 
+                              onClick={() => setCompDropdownOpenB(false)} 
+                            />
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
+                              {filteredCompOptionsB.length > 0 ? (
+                                filteredCompOptionsB.map(prod => (
+                                  <div
+                                    key={`comp-opt-b-${prod.sku}`}
+                                    onClick={() => {
+                                      setSelectedCompProductBSku(prod.sku);
+                                      setCompSearchB('');
+                                      setCompDropdownOpenB(false);
+                                    }}
+                                    className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-emerald-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
+                                      prod.sku === selectedCompProductBSku ? 'bg-emerald-50 font-black text-emerald-700' : 'text-slate-700 font-medium'
+                                    }`}
+                                  >
+                                    <div className="truncate pr-2">
+                                      <span className="font-mono font-bold text-emerald-600 mr-1.5">[{prod.sku}]</span>
+                                      <span>{prod.name}</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatNumberIndo(prod.totalQty)} pcs</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="px-4 py-3 text-xs text-slate-400 text-center">Produk tidak ditemukan</div>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 

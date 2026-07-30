@@ -37,6 +37,7 @@ export interface ProductPerformance {
   totalSales: number;
   brand: string;
   date?: string; // Optional raw transaction date (YYYY-MM-DD)
+  imageUrl?: string; // Optional product image URL from FOTO PRODUK column
 }
 
 export const EVENT_TYPES = [

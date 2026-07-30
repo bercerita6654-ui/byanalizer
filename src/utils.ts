@@ -353,6 +353,8 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
   let qtyIdx = headers.findIndex(h => h.toLowerCase() === 'qty' || h.toLowerCase() === 'quantity');
   // Invoice/Nomer: Column 3 (index 2 in 1-based header starting with "")
   let nomerIdx = headers.findIndex(h => h.toLowerCase() === 'nomer' || h.toLowerCase() === 'invoice' || h.toLowerCase() === 'no' || h.toLowerCase() === 'nomor');
+  // Foto Produk:
+  let fotoIdx = headers.findIndex(h => h.toLowerCase() === 'foto produk' || h.toLowerCase() === 'foto' || h.toLowerCase() === 'image' || h.toLowerCase() === 'gambar' || h.toLowerCase().includes('foto'));
 
   const result: ProductPerformance[] = [];
 
@@ -370,6 +372,7 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
     let dIdx = dateIdx;
     let qIdx = qtyIdx;
     let nomIdx = nomerIdx;
+    let fIdx = fotoIdx;
 
     const rowHasLeadingEmpty = row[0] === '';
     const needShift = hasLeadingEmpty && !rowHasLeadingEmpty;
@@ -384,6 +387,7 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
       if (dIdx > 0) dIdx--;
       if (qIdx > 0) qIdx--;
       if (nomIdx > 0) nomIdx--;
+      if (fIdx > 0) fIdx--;
     }
 
     const defaultSkuIdx = needShift ? 3 : 4;
@@ -406,6 +410,7 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
     const price = parseProductNumber(row[pIdx] || row[defaultPriceIdx] || '0');
     const rawDate = (row[dIdx] || row[defaultDateIdx] || '').trim();
     const parsedDate = parseIndonesianDate(rawDate) || '2026-01-01';
+    const imageUrl = (fIdx !== -1 ? row[fIdx] : '') || '';
     
     let brand = (row[bIdx] || row[defaultBrandIdx] || '').trim();
     if (!brand || brand === '#N/A' || brand.toLowerCase() === 'n/a' || brand === '') {
@@ -420,9 +425,39 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
       unit,
       totalSales: price * qty, // Calculate correct line-item Sales as Price * Qty
       brand,
-      date: parsedDate
+      date: parsedDate,
+      imageUrl
     });
   }
 
   return result;
+}
+
+// Parse Stock List CSV (gid 1285691610) to map SKU to Foto Produk (Column 24)
+export function parseStockListImageMap(text: string): Record<string, string> {
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  if (lines.length < 2) return {};
+  const headers = parseCSVRow(lines[0]).map(h => h.trim().toLowerCase());
+  let codeIdx = headers.findIndex(h => h === 'code' || h === 'sku' || h === 'kode');
+  if (codeIdx === -1) codeIdx = 0;
+  let fotoIdx = headers.findIndex(h => h === 'foto produk' || h === 'fotoproduk' || h.includes('foto') || h.includes('image') || h.includes('photo'));
+  if (fotoIdx === -1) fotoIdx = 23; // Column 24 (1-based) is index 23
+
+  const map: Record<string, string> = {};
+  for (let i = 1; i < lines.length; i++) {
+    const row = parseCSVRow(lines[i]);
+    if (!row || row.length <= Math.max(codeIdx, fotoIdx)) continue;
+    const sku = String(row[codeIdx] || '').trim();
+    const foto = String(row[fotoIdx] || '').trim();
+    if (sku && foto && foto !== 'undefined' && foto !== 'null') {
+      const url = foto.startsWith('http') ? foto : `https://lh3.googleusercontent.com/d/${foto}`;
+      map[sku] = url;
+      map[sku.toLowerCase()] = url;
+      const numSku = sku.replace(/^0+/, '');
+      if (numSku) {
+        map[numSku] = url;
+      }
+    }
+  }
+  return map;
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ProductPerformance } from '../types';
-import { parseProductPerformanceCSV, formatRupiah, formatNumberIndo, formatRupiahCompact } from '../utils';
+import { parseProductPerformanceCSV, parseStockListImageMap, formatRupiah, formatNumberIndo, formatRupiahCompact } from '../utils';
 import { getProductsCache, setProductsCache } from '../dbCache';
 import { 
   Package, Search, Filter, ArrowUpDown, Tag, Compass, 
@@ -18,6 +18,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const PRODUCTS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=68677243&single=true&output=csv';
+const STOCK_LIST_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=1285691610&single=true&output=csv';
 
 // Helper functions for Indonesian date/month formatting and Mon-Sun week calculations
 function getMondayOfWeek(dateStr: string): string {
@@ -160,28 +161,45 @@ export default function SalesProducts() {
     setIsLoading(true);
     setIsError(null);
     try {
+      let parsed: ProductPerformance[] = [];
       if (forceNetwork === false || (typeof forceNetwork !== 'boolean')) {
         // Cek data di IndexedDB terlebih dahulu untuk loading instan
         const cachedData = await getProductsCache(PRODUCTS_CSV_URL);
         if (cachedData && cachedData.length > 0) {
-          setProducts(cachedData);
+          parsed = cachedData;
           setIsUsingCache(true);
-          setIsLoading(false);
-          return;
         }
       }
 
-      // Tarik data baru dari Google Sheets
-      const response = await fetch(PRODUCTS_CSV_URL);
-      if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-      const text = await response.text();
-      const parsed = parseProductPerformanceCSV(text);
+      if (parsed.length === 0) {
+        const resProd = await fetch(PRODUCTS_CSV_URL);
+        if (!resProd.ok) throw new Error(`HTTP Error: ${resProd.status}`);
+        const textProd = await resProd.text();
+        parsed = parseProductPerformanceCSV(textProd);
+        setIsUsingCache(false);
+      }
+
+      // Tarik data Stock List untuk Foto Produk
+      const resStock = await fetch(STOCK_LIST_CSV_URL).catch(() => null);
+      if (resStock && resStock.ok) {
+        const textStock = await resStock.text();
+        const imageMap = parseStockListImageMap(textStock);
+        parsed = parsed.map(p => {
+          const skuStr = String(p.sku || '').trim();
+          const numSku = skuStr.replace(/^0+/, '');
+          const img = imageMap[skuStr] || imageMap[skuStr.toLowerCase()] || (numSku ? imageMap[numSku] : '') || p.imageUrl;
+          return {
+            ...p,
+            imageUrl: img ? (img.startsWith('http') ? img : `https://lh3.googleusercontent.com/d/${img}`) : ''
+          };
+        });
+      }
+
       if (parsed.length === 0) {
         throw new Error('Gagal memproses data produk atau format kolom tidak sesuai.');
       }
       setProducts(parsed);
       await setProductsCache(PRODUCTS_CSV_URL, parsed);
-      setIsUsingCache(false);
     } catch (err: any) {
       console.error(err);
       setIsError(err.message || 'Gagal memuat data produk. Pastikan koneksi internet aktif.');
@@ -429,7 +447,8 @@ export default function SalesProducts() {
           unit: t.unit,
           totalSales: 0,
           brand: t.brand,
-          date: t.date
+          date: t.date,
+          imageUrl: t.imageUrl
         };
       }
       aggregation[sku].totalQty += t.totalQty;
@@ -444,6 +463,9 @@ export default function SalesProducts() {
       }
       if (t.brand !== 'No Brand' && aggregation[sku].brand === 'No Brand') {
         aggregation[sku].brand = t.brand;
+      }
+      if (t.imageUrl && !aggregation[sku].imageUrl) {
+        aggregation[sku].imageUrl = t.imageUrl;
       }
     });
 
@@ -1660,14 +1682,23 @@ export default function SalesProducts() {
                   <Flame className="w-4 h-4" />
                 </div>
               </div>
-              <div className="truncate">
-                <h3 className="text-xs font-black text-slate-800 leading-snug truncate" title={stats.bestseller?.name || ''}>
-                  {stats.bestseller?.name || 'Tidak ada'}
-                </h3>
-                <p className="text-[10px] text-slate-500 font-bold mt-1.5 flex items-center justify-between">
-                  <span>SKU {stats.bestseller?.sku}</span>
-                  <span className="text-indigo-600">{formatRupiah(stats.bestseller?.totalSales || 0)}</span>
-                </p>
+              <div className="flex items-center gap-3">
+                {stats.bestseller?.imageUrl ? (
+                  <img src={stats.bestseller.imageUrl} alt={stats.bestseller.name} className="w-10 h-10 object-cover rounded-xl border border-slate-200 shrink-0 shadow-sm" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
+                ) : (
+                  <div className="w-10 h-10 bg-amber-50 border border-amber-100 rounded-xl flex items-center justify-center text-amber-600 shrink-0">
+                    <Package className="w-5 h-5" />
+                  </div>
+                )}
+                <div className="truncate min-w-0 flex-1">
+                  <h3 className="text-xs font-black text-slate-800 leading-snug truncate" title={stats.bestseller?.name || ''}>
+                    {stats.bestseller?.name || 'Tidak ada'}
+                  </h3>
+                  <p className="text-[10px] text-slate-500 font-bold mt-1 flex items-center justify-between">
+                    <span>SKU {stats.bestseller?.sku}</span>
+                    <span className="text-indigo-600">{formatRupiah(stats.bestseller?.totalSales || 0)}</span>
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -2735,8 +2766,17 @@ export default function SalesProducts() {
                         const pctLabel = prod.pctGrowth > 0 ? `(+${prod.pctGrowth.toFixed(0)}%)` : '';
                         return (
                           <div key={prod.sku} className="bg-white/85 border border-slate-200/60 p-3 rounded-2xl shadow-sm flex items-start gap-3 hover:border-indigo-200 transition-all">
-                            <div className="p-2 bg-emerald-50 border border-emerald-100/60 text-emerald-600 rounded-xl font-black text-xs font-mono shrink-0">
-                              #{idx + 1}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="p-1.5 bg-emerald-50 border border-emerald-100/60 text-emerald-600 rounded-lg font-black text-[10px] font-mono">
+                                #{idx + 1}
+                              </div>
+                              {prod.imageUrl ? (
+                                <img src={prod.imageUrl} alt={prod.name} className="w-10 h-10 object-cover rounded-xl border border-slate-200 shadow-sm" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
+                              ) : (
+                                <div className="w-10 h-10 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center text-slate-400">
+                                  <Package className="w-4 h-4" />
+                                </div>
+                              )}
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
@@ -2782,8 +2822,17 @@ export default function SalesProducts() {
                         const pctLabel = prod.pctGrowth !== 0 ? `(${prod.pctGrowth.toFixed(0)}%)` : '';
                         return (
                           <div key={prod.sku} className="bg-white/85 border border-slate-200/60 p-3 rounded-2xl shadow-sm flex items-start gap-3 hover:border-rose-200 transition-all">
-                            <div className="p-2 bg-rose-50 border border-rose-100/60 text-rose-600 rounded-xl font-black text-xs font-mono shrink-0">
-                              #{idx + 1}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="p-1.5 bg-rose-50 border border-rose-100/60 text-rose-600 rounded-lg font-black text-[10px] font-mono">
+                                #{idx + 1}
+                              </div>
+                              {prod.imageUrl ? (
+                                <img src={prod.imageUrl} alt={prod.name} className="w-10 h-10 object-cover rounded-xl border border-slate-200 shadow-sm" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
+                              ) : (
+                                <div className="w-10 h-10 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center text-slate-400">
+                                  <Package className="w-4 h-4" />
+                                </div>
+                              )}
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
@@ -2837,6 +2886,7 @@ export default function SalesProducts() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
                     <th className="py-3 px-5 text-center w-12">No</th>
+                    <th className="py-3 px-4 w-16 text-center">Foto</th>
                     <th className="py-3 px-4 w-20">SKU</th>
                     <th className="py-3 px-4">Nama Produk</th>
                     <th className="py-3 px-4 w-28">Merk / Brand</th>
@@ -2866,6 +2916,20 @@ export default function SalesProducts() {
                           >
                             <td className="py-3.5 px-5 text-center font-bold text-slate-400 text-[10.5px]">
                               {absoluteRank}
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              {p.imageUrl ? (
+                                <img 
+                                  src={p.imageUrl} 
+                                  alt={p.name} 
+                                  className="w-10 h-10 object-cover rounded-xl border border-slate-200 mx-auto shadow-sm"
+                                  onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                />
+                              ) : (
+                                <div className="w-10 h-10 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center text-slate-400 mx-auto">
+                                  <Package className="w-4 h-4" />
+                                </div>
+                              )}
                             </td>
                             <td className="py-3.5 px-4 font-mono font-bold text-slate-500">
                               {p.sku}
@@ -2932,7 +2996,7 @@ export default function SalesProducts() {
                       })
                     ) : (
                       <tr key="empty-row">
-                        <td colSpan={11} className="py-12 text-center text-slate-400 font-bold">
+                        <td colSpan={12} className="py-12 text-center text-slate-400 font-bold">
                           Tidak ada produk yang cocok dengan pencarian / filter Anda.
                         </td>
                       </tr>
@@ -3019,9 +3083,13 @@ export default function SalesProducts() {
             {/* Modal Header */}
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <div className="flex items-start gap-3.5">
-                <div className="p-3 bg-indigo-50 border border-indigo-100/60 text-indigo-600 rounded-2xl shrink-0">
-                  <Package className="w-6 h-6" />
-                </div>
+                {selectedTrendProduct.imageUrl ? (
+                  <img src={selectedTrendProduct.imageUrl} alt={selectedTrendProduct.name} className="w-14 h-14 object-cover rounded-2xl border border-slate-200 shrink-0 shadow-sm" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
+                ) : (
+                  <div className="p-3 bg-indigo-50 border border-indigo-100/60 text-indigo-600 rounded-2xl shrink-0 w-14 h-14 flex items-center justify-center">
+                    <Package className="w-6 h-6" />
+                  </div>
+                )}
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-sm sm:text-base font-black text-slate-800 leading-tight">

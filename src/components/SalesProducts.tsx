@@ -8,7 +8,7 @@ import {
   TrendingUp, BarChart2, DollarSign, Flame, FolderOpen, 
   RefreshCw, AlertCircle, Award, Check, SlidersHorizontal,
   ChevronLeft, ChevronRight, Download, X, Sparkles, TrendingDown, Zap,
-  Pin
+  Pin, Calendar
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
@@ -112,14 +112,38 @@ export default function SalesProducts() {
   const [selectedTrendProductSku, setSelectedTrendProductSku] = useState<string | null>(null);
   const [selectedCategoryDetail, setSelectedCategoryDetail] = useState<string | null>(null);
 
-  // Product comparison state
+  // Product & Category/Brand comparison state
+  const [compMode, setCompMode] = useState<'product' | 'brand' | 'category'>('product');
   const [selectedCompProductASku, setSelectedCompProductASku] = useState<string>('');
   const [selectedCompProductBSku, setSelectedCompProductBSku] = useState<string>('');
+  const [selectedCompBrandA, setSelectedCompBrandA] = useState<string>('');
+  const [selectedCompBrandB, setSelectedCompBrandB] = useState<string>('');
+  const [selectedCompCategoryA, setSelectedCompCategoryA] = useState<string>('');
+  const [selectedCompCategoryB, setSelectedCompCategoryB] = useState<string>('');
   const [compMetric, setCompMetric] = useState<'qty' | 'sales'>('qty');
   const [compSearchA, setCompSearchA] = useState<string>('');
   const [compDropdownOpenA, setCompDropdownOpenA] = useState<boolean>(false);
   const [compSearchB, setCompSearchB] = useState<string>('');
   const [compDropdownOpenB, setCompDropdownOpenB] = useState<boolean>(false);
+  const [compBrandSearchA, setCompBrandSearchA] = useState<string>('');
+  const [compBrandDropdownA, setCompBrandDropdownA] = useState<boolean>(false);
+  const [compBrandSearchB, setCompBrandSearchB] = useState<string>('');
+  const [compBrandDropdownB, setCompBrandDropdownB] = useState<boolean>(false);
+  const [compCatSearchA, setCompCatSearchA] = useState<string>('');
+  const [compCatDropdownA, setCompCatDropdownA] = useState<boolean>(false);
+  const [compCatSearchB, setCompCatSearchB] = useState<string>('');
+  const [compCatDropdownB, setCompCatDropdownB] = useState<boolean>(false);
+
+  // Comparison section time filter states (harian, mingguan, bulanan)
+  const [compTimeFilterType, setCompTimeFilterType] = useState<'all' | 'daily' | 'weekly' | 'monthly'>('monthly');
+  const [compSelectedDay, setCompSelectedDay] = useState<string>('all');
+  const [compSelectedWeek, setCompSelectedWeek] = useState<string>('all');
+  const [compSelectedMonth, setCompSelectedMonth] = useState<string>(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  });
 
   // Pinned Chart state for dashboard customization
   const [pinnedChart, setPinnedChart] = useState<'top10' | 'categoryBrand' | 'comparison' | null>(() => {
@@ -870,10 +894,135 @@ export default function SalesProducts() {
     };
   }, [filteredAndSortedProducts, productTrendMap]);
 
+  // Dynamic aggregation for comparison section based on its own time filter
+  const compAggregatedProducts = useMemo(() => {
+    let filteredTransactions = [...products];
+
+    if (compTimeFilterType === 'daily' && compSelectedDay !== 'all') {
+      filteredTransactions = filteredTransactions.filter(t => t.date === compSelectedDay);
+    } else if (compTimeFilterType === 'weekly' && compSelectedWeek !== 'all') {
+      filteredTransactions = filteredTransactions.filter(t => {
+        if (!t.date) return false;
+        return getMondayOfWeek(t.date) === compSelectedWeek;
+      });
+    } else if (compTimeFilterType === 'monthly' && compSelectedMonth !== 'all') {
+      filteredTransactions = filteredTransactions.filter(t => {
+        if (!t.date) return false;
+        return t.date.substring(0, 7) === compSelectedMonth;
+      });
+    }
+
+    const aggregation: Record<string, ProductPerformance> = {};
+    filteredTransactions.forEach(t => {
+      const sku = t.sku;
+      if (!aggregation[sku]) {
+        aggregation[sku] = {
+          sku: t.sku,
+          category: t.category,
+          name: t.name,
+          totalQty: 0,
+          unit: t.unit,
+          totalSales: 0,
+          brand: t.brand,
+          date: t.date,
+          imageUrl: t.imageUrl
+        };
+      }
+      aggregation[sku].totalQty += t.totalQty;
+      aggregation[sku].totalSales += t.totalSales;
+
+      if (t.category !== 'Uncategorized' && aggregation[sku].category === 'Uncategorized') {
+        aggregation[sku].category = t.category;
+      }
+      if (t.name !== 'Produk Tanpa Nama' && aggregation[sku].name === 'Produk Tanpa Nama') {
+        aggregation[sku].name = t.name;
+      }
+      if (t.brand !== 'No Brand' && aggregation[sku].brand === 'No Brand') {
+        aggregation[sku].brand = t.brand;
+      }
+      if (t.imageUrl && !aggregation[sku].imageUrl) {
+        aggregation[sku].imageUrl = t.imageUrl;
+      }
+    });
+
+    return Object.values(aggregation);
+  }, [products, compTimeFilterType, compSelectedDay, compSelectedWeek, compSelectedMonth]);
+
+  const compStats = useMemo(() => {
+    if (compAggregatedProducts.length === 0) return null;
+    let totalRevenue = 0;
+    let totalQty = 0;
+    const categoryStats: Record<string, { revenue: number; qty: number }> = {};
+    const brandStats: Record<string, { revenue: number; qty: number }> = {};
+
+    compAggregatedProducts.forEach(p => {
+      totalRevenue += p.totalSales;
+      totalQty += p.totalQty;
+
+      if (!categoryStats[p.category]) {
+        categoryStats[p.category] = { revenue: 0, qty: 0 };
+      }
+      categoryStats[p.category].revenue += p.totalSales;
+      categoryStats[p.category].qty += p.totalQty;
+
+      if (!brandStats[p.brand]) {
+        brandStats[p.brand] = { revenue: 0, qty: 0 };
+      }
+      brandStats[p.brand].revenue += p.totalSales;
+      brandStats[p.brand].qty += p.totalQty;
+    });
+
+    const brandSummary = Object.entries(brandStats).map(([name, data]) => ({
+      name,
+      revenue: data.revenue,
+      qty: data.qty,
+      percentage: totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0
+    })).sort((a, b) => b.revenue - a.revenue);
+
+    const categorySummary = Object.entries(categoryStats).map(([name, data]) => ({
+      name,
+      revenue: data.revenue,
+      qty: data.qty,
+      percentage: totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0
+    })).sort((a, b) => b.revenue - a.revenue);
+
+    return {
+      totalRevenue,
+      totalQty,
+      brandSummary,
+      categorySummary
+    };
+  }, [compAggregatedProducts]);
+
   // Available options for product comparison (from the aggregated list)
   const comparisonProductOptions = useMemo(() => {
-    return [...aggregatedProducts].sort((a, b) => b.totalSales - a.totalSales);
-  }, [aggregatedProducts]);
+    return [...compAggregatedProducts].sort((a, b) => b.totalSales - a.totalSales);
+  }, [compAggregatedProducts]);
+
+  const brandComparisonOptions = useMemo(() => {
+    if (!compStats || !compStats.brandSummary) return [];
+    return compStats.brandSummary;
+  }, [compStats]);
+
+  const categoryComparisonOptions = useMemo(() => {
+    if (!compStats || !compStats.categorySummary) return [];
+    return compStats.categorySummary;
+  }, [compStats]);
+
+  const compComparisonDates = useMemo(() => {
+    let filteredDays = [...availableDays];
+    filteredDays.sort((a, b) => a.localeCompare(b));
+
+    if (compTimeFilterType === 'daily' && compSelectedDay !== 'all') {
+      filteredDays = [compSelectedDay];
+    } else if (compTimeFilterType === 'weekly' && compSelectedWeek !== 'all') {
+      filteredDays = filteredDays.filter(d => getMondayOfWeek(d) === compSelectedWeek);
+    } else if (compTimeFilterType === 'monthly' && compSelectedMonth !== 'all') {
+      filteredDays = filteredDays.filter(d => d.substring(0, 7) === compSelectedMonth);
+    }
+
+    return filteredDays;
+  }, [availableDays, compTimeFilterType, compSelectedDay, compSelectedWeek, compSelectedMonth]);
 
   const filteredCompOptionsA = useMemo(() => {
     if (!compSearchA.trim()) return comparisonProductOptions.slice(0, 50);
@@ -887,64 +1036,193 @@ export default function SalesProducts() {
     return comparisonProductOptions.filter(p => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)).slice(0, 50);
   }, [comparisonProductOptions, compSearchB]);
 
+  const filteredCompBrandOptionsA = useMemo(() => {
+    if (!compBrandSearchA.trim()) return brandComparisonOptions;
+    const q = compBrandSearchA.toLowerCase();
+    return brandComparisonOptions.filter(b => b.name.toLowerCase().includes(q));
+  }, [brandComparisonOptions, compBrandSearchA]);
+
+  const filteredCompBrandOptionsB = useMemo(() => {
+    if (!compBrandSearchB.trim()) return brandComparisonOptions;
+    const q = compBrandSearchB.toLowerCase();
+    return brandComparisonOptions.filter(b => b.name.toLowerCase().includes(q));
+  }, [brandComparisonOptions, compBrandSearchB]);
+
+  const filteredCompCatOptionsA = useMemo(() => {
+    if (!compCatSearchA.trim()) return categoryComparisonOptions;
+    const q = compCatSearchA.toLowerCase();
+    return categoryComparisonOptions.filter(c => c.name.toLowerCase().includes(q));
+  }, [categoryComparisonOptions, compCatSearchA]);
+
+  const filteredCompCatOptionsB = useMemo(() => {
+    if (!compCatSearchB.trim()) return categoryComparisonOptions;
+    const q = compCatSearchB.toLowerCase();
+    return categoryComparisonOptions.filter(c => c.name.toLowerCase().includes(q));
+  }, [categoryComparisonOptions, compCatSearchB]);
+
   // Selected product A & B details
   const selectedCompProductA = useMemo(() => {
     if (!selectedCompProductASku) return null;
-    return aggregatedProducts.find(p => p.sku === selectedCompProductASku) || products.find(p => p.sku === selectedCompProductASku) || null;
-  }, [selectedCompProductASku, aggregatedProducts, products]);
+    return compAggregatedProducts.find(p => p.sku === selectedCompProductASku) || products.find(p => p.sku === selectedCompProductASku) || null;
+  }, [selectedCompProductASku, compAggregatedProducts, products]);
 
   const selectedCompProductB = useMemo(() => {
     if (!selectedCompProductBSku) return null;
-    return aggregatedProducts.find(p => p.sku === selectedCompProductBSku) || products.find(p => p.sku === selectedCompProductBSku) || null;
-  }, [selectedCompProductBSku, aggregatedProducts, products]);
+    return compAggregatedProducts.find(p => p.sku === selectedCompProductBSku) || products.find(p => p.sku === selectedCompProductBSku) || null;
+  }, [selectedCompProductBSku, compAggregatedProducts, products]);
 
-  // Combined daily trend data for the two selected products
+  const selectedCompBrandObjA = useMemo(() => {
+    if (!selectedCompBrandA) return null;
+    return brandComparisonOptions.find(b => b.name === selectedCompBrandA) || null;
+  }, [selectedCompBrandA, brandComparisonOptions]);
+
+  const selectedCompBrandObjB = useMemo(() => {
+    if (!selectedCompBrandB) return null;
+    return brandComparisonOptions.find(b => b.name === selectedCompBrandB) || null;
+  }, [selectedCompBrandB, brandComparisonOptions]);
+
+  const selectedCompCategoryObjA = useMemo(() => {
+    if (!selectedCompCategoryA) return null;
+    return categoryComparisonOptions.find(c => c.name === selectedCompCategoryA) || null;
+  }, [selectedCompCategoryA, categoryComparisonOptions]);
+
+  const selectedCompCategoryObjB = useMemo(() => {
+    if (!selectedCompCategoryB) return null;
+    return categoryComparisonOptions.find(c => c.name === selectedCompCategoryB) || null;
+  }, [selectedCompCategoryB, categoryComparisonOptions]);
+
+  // Auto select defaults
+  useEffect(() => {
+    if (compMode === 'product') {
+      if (!selectedCompProductASku && comparisonProductOptions.length > 0) {
+        setSelectedCompProductASku(comparisonProductOptions[0].sku);
+      }
+      if (!selectedCompProductBSku && comparisonProductOptions.length > 1) {
+        setSelectedCompProductBSku(comparisonProductOptions[1].sku);
+      } else if (!selectedCompProductBSku && comparisonProductOptions.length === 1) {
+        setSelectedCompProductBSku(comparisonProductOptions[0].sku);
+      }
+    } else if (compMode === 'brand') {
+      if (!selectedCompBrandA && brandComparisonOptions.length > 0) {
+        setSelectedCompBrandA(brandComparisonOptions[0].name);
+      }
+      if (!selectedCompBrandB && brandComparisonOptions.length > 1) {
+        setSelectedCompBrandB(brandComparisonOptions[1].name);
+      } else if (!selectedCompBrandB && brandComparisonOptions.length === 1) {
+        setSelectedCompBrandB(brandComparisonOptions[0].name);
+      }
+    } else if (compMode === 'category') {
+      if (!selectedCompCategoryA && categoryComparisonOptions.length > 0) {
+        setSelectedCompCategoryA(categoryComparisonOptions[0].name);
+      }
+      if (!selectedCompCategoryB && categoryComparisonOptions.length > 1) {
+        setSelectedCompCategoryB(categoryComparisonOptions[1].name);
+      } else if (!selectedCompCategoryB && categoryComparisonOptions.length === 1) {
+        setSelectedCompCategoryB(categoryComparisonOptions[0].name);
+      }
+    }
+  }, [compMode, comparisonProductOptions, brandComparisonOptions, categoryComparisonOptions]);
+
+  // Combined daily trend data
   const comparisonChartData = useMemo(() => {
-    if (!selectedCompProductASku || !selectedCompProductBSku) return [];
-
-    return comparisonDates.map(date => {
-      let qtyA = 0;
-      let salesA = 0;
-      let qtyB = 0;
-      let salesB = 0;
-
-      products.forEach(p => {
-        if (p.date === date) {
-          if (p.sku === selectedCompProductASku) {
-            qtyA += p.totalQty;
-            salesA += p.totalSales;
-          } else if (p.sku === selectedCompProductBSku) {
-            qtyB += p.totalQty;
-            salesB += p.totalSales;
+    if (compMode === 'product') {
+      if (!selectedCompProductASku || !selectedCompProductBSku) return [];
+      return compComparisonDates.map(date => {
+        let qtyA = 0;
+        let salesA = 0;
+        let qtyB = 0;
+        let salesB = 0;
+        products.forEach(p => {
+          if (p.date === date) {
+            if (p.sku === selectedCompProductASku) {
+              qtyA += p.totalQty;
+              salesA += p.totalSales;
+            } else if (p.sku === selectedCompProductBSku) {
+              qtyB += p.totalQty;
+              salesB += p.totalSales;
+            }
           }
-        }
+        });
+        return {
+          date,
+          formattedDate: formatDateIndo(date),
+          qtyA,
+          salesA,
+          qtyB,
+          salesB
+        };
       });
-
-      return {
-        date,
-        formattedDate: formatDateIndo(date),
-        qtyA,
-        salesA,
-        qtyB,
-        salesB
-      };
-    });
-  }, [comparisonDates, products, selectedCompProductASku, selectedCompProductBSku]);
+    } else if (compMode === 'brand') {
+      if (!selectedCompBrandA || !selectedCompBrandB) return [];
+      return compComparisonDates.map(date => {
+        let qtyA = 0;
+        let salesA = 0;
+        let qtyB = 0;
+        let salesB = 0;
+        products.forEach(p => {
+          if (p.date === date) {
+            if (p.brand === selectedCompBrandA) {
+              qtyA += p.totalQty;
+              salesA += p.totalSales;
+            } else if (p.brand === selectedCompBrandB) {
+              qtyB += p.totalQty;
+              salesB += p.totalSales;
+            }
+          }
+        });
+        return {
+          date,
+          formattedDate: formatDateIndo(date),
+          qtyA,
+          salesA,
+          qtyB,
+          salesB
+        };
+      });
+    } else {
+      if (!selectedCompCategoryA || !selectedCompCategoryB) return [];
+      return compComparisonDates.map(date => {
+        let qtyA = 0;
+        let salesA = 0;
+        let qtyB = 0;
+        let salesB = 0;
+        products.forEach(p => {
+          if (p.date === date) {
+            if (p.category === selectedCompCategoryA) {
+              qtyA += p.totalQty;
+              salesA += p.totalSales;
+            } else if (p.category === selectedCompCategoryB) {
+              qtyB += p.totalQty;
+              salesB += p.totalSales;
+            }
+          }
+        });
+        return {
+          date,
+          formattedDate: formatDateIndo(date),
+          qtyA,
+          salesA,
+          qtyB,
+          salesB
+        };
+      });
+    }
+  }, [compComparisonDates, products, compMode, selectedCompProductASku, selectedCompProductBSku, selectedCompBrandA, selectedCompBrandB, selectedCompCategoryA, selectedCompCategoryB]);
 
   const comparisonTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length && selectedCompProductA && selectedCompProductB) {
+    const valid = compMode === 'product' ? (selectedCompProductA && selectedCompProductB) : compMode === 'brand' ? (selectedCompBrandObjA && selectedCompBrandObjB) : (selectedCompCategoryObjA && selectedCompCategoryObjB);
+    if (active && payload && payload.length && valid) {
       const data = payload[0].payload;
       const isSales = compMetric === 'sales';
       const valA = isSales ? data.salesA : data.qtyA;
       const valB = isSales ? data.salesB : data.qtyB;
-      
-      const diffVal = valA - valB;
-      const diffPct = valB > 0 ? (diffVal / valB) * 100 : 0;
-      
+      const labelA = compMode === 'product' ? selectedCompProductA.sku : compMode === 'brand' ? selectedCompBrandA : selectedCompCategoryA;
+      const labelB = compMode === 'product' ? selectedCompProductB.sku : compMode === 'brand' ? selectedCompBrandB : selectedCompCategoryB;
+
       return (
         <div className="bg-slate-950/95 backdrop-blur-md text-white p-4 rounded-2xl border border-slate-800 shadow-2xl space-y-3 text-xs min-w-[280px]">
           <div className="border-b border-slate-800/80 pb-2">
-            <span className="font-black text-slate-400 uppercase tracking-widest text-[9px] block mb-0.5">⚔️ Perbandingan Produk</span>
+            <span className="font-black text-slate-400 uppercase tracking-widest text-[9px] block mb-0.5">⚔️ Perbandingan {compMode === 'product' ? 'Produk' : compMode === 'brand' ? 'Brand' : 'Kategori'}</span>
             <span className="font-mono text-slate-300 font-bold bg-slate-800 px-2 py-0.5 rounded text-[10px]">
               {data.formattedDate}
             </span>
@@ -954,35 +1232,21 @@ export default function SalesProducts() {
             <div className="flex justify-between items-center gap-4 text-[11px]">
               <span className="font-bold flex items-center gap-1.5 text-indigo-400">
                 <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                [A] {selectedCompProductA.sku}:
+                [A] {labelA}:
               </span>
               <span className="font-mono font-bold text-slate-200">
-                {isSales ? formatRupiah(data.salesA) : `${formatNumberIndo(data.qtyA)} ${selectedCompProductA.unit || 'unit'}`}
+                {isSales ? formatRupiah(data.salesA) : `${formatNumberIndo(data.qtyA)} unit`}
               </span>
             </div>
 
             <div className="flex justify-between items-center gap-4 text-[11px]">
               <span className="font-bold flex items-center gap-1.5 text-emerald-400">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                [B] {selectedCompProductB.sku}:
+                [B] {labelB}:
               </span>
               <span className="font-mono font-bold text-slate-200">
-                {isSales ? formatRupiah(data.salesB) : `${formatNumberIndo(data.qtyB)} ${selectedCompProductB.unit || 'unit'}`}
+                {isSales ? formatRupiah(data.salesB) : `${formatNumberIndo(data.qtyB)} unit`}
               </span>
-            </div>
-          </div>
-          
-          <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-[10.5px]">
-            <span className="font-bold text-slate-400">Selisih (A vs B):</span>
-            <div className="font-mono font-black text-right">
-              <span className={diffVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                {diffVal >= 0 ? '+' : ''}{isSales ? formatRupiah(diffVal) : `${formatNumberIndo(diffVal)} unit`}
-              </span>
-              {valB > 0 && (
-                <span className={`text-[9.5px] ml-1.5 px-1.5 py-0.5 rounded font-extrabold ${diffVal >= 0 ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-900/50' : 'bg-rose-950/80 text-rose-400 border border-rose-900/50'}`}>
-                  {diffVal >= 0 ? '+' : ''}{diffPct.toFixed(1)}%
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -2105,6 +2369,111 @@ export default function SalesProducts() {
                       </div>
                     </div>
 
+                    {/* Comparison Time Filter Bar (Daily, Weekly, Monthly, All) */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                          Filter Periode Perbandingan:
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+                          <button
+                            type="button"
+                            onClick={() => setCompTimeFilterType('all')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              compTimeFilterType === 'all'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            Semua Waktu
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCompTimeFilterType('daily')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              compTimeFilterType === 'daily'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            Harian
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCompTimeFilterType('weekly')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              compTimeFilterType === 'weekly'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            Mingguan
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCompTimeFilterType('monthly')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              compTimeFilterType === 'monthly'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            Bulanan
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Sub-selector for daily / weekly / monthly */}
+                      {compTimeFilterType === 'daily' && (
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60">
+                          <span className="text-[10px] font-bold text-slate-500 shrink-0">Pilih Hari:</span>
+                          <select
+                            value={compSelectedDay}
+                            onChange={e => setCompSelectedDay(e.target.value)}
+                            className="w-full sm:w-auto bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="all">Semua Hari ({availableDays.length} hari)</option>
+                            {availableDays.map(d => (
+                              <option key={`comp-day-${d}`} value={d}>{formatDateIndo(d)}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {compTimeFilterType === 'weekly' && (
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60">
+                          <span className="text-[10px] font-bold text-slate-500 shrink-0">Pilih Minggu:</span>
+                          <select
+                            value={compSelectedWeek}
+                            onChange={e => setCompSelectedWeek(e.target.value)}
+                            className="w-full sm:w-auto bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="all">Semua Minggu ({availableWeeks.length} minggu)</option>
+                            {availableWeeks.map(w => (
+                              <option key={`comp-week-${w}`} value={w}>{formatWeekIndo(w)}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {compTimeFilterType === 'monthly' && (
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60">
+                          <span className="text-[10px] font-bold text-slate-500 shrink-0">Pilih Bulan:</span>
+                          <select
+                            value={compSelectedMonth}
+                            onChange={e => setCompSelectedMonth(e.target.value)}
+                            className="w-full sm:w-auto bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="all">Semua Bulan ({availableMonths.length} bulan)</option>
+                            {availableMonths.map(m => (
+                              <option key={`comp-month-${m}`} value={m}>{formatMonthIndo(m)}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Selection Searchable Inputs Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
                       {/* Product A Selector */}
@@ -2294,11 +2663,11 @@ export default function SalesProducts() {
                             </div>
 
                             {/* Contribution Share Badge */}
-                            {stats && (
+                            {compStats && (
                               <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-indigo-100/30">
                                 <span>Kontribusi Toko:</span>
                                 <span className="text-indigo-600 font-black">
-                                  {((selectedCompProductA.totalSales / (stats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
+                                  {((selectedCompProductA.totalSales / (compStats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
                                 </span>
                               </div>
                             )}
@@ -2343,11 +2712,11 @@ export default function SalesProducts() {
                             </div>
 
                             {/* Contribution Share Badge */}
-                            {stats && (
+                            {compStats && (
                               <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-emerald-100/30">
                                 <span>Kontribusi Toko:</span>
                                 <span className="text-emerald-600 font-black">
-                                  {((selectedCompProductB.totalSales / (stats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
+                                  {((selectedCompProductB.totalSales / (compStats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
                                 </span>
                               </div>
                             )}

@@ -2322,13 +2322,54 @@ export default function SalesProducts() {
                           <ArrowUpDown className="w-5 h-5 text-indigo-500" />
                         </div>
                         <div>
-                          <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Perbandingan Produk Secara Berdampingan</h3>
-                          <p className="text-[10px] text-slate-400 font-bold mt-0.5">Bandingkan tren volume penjualan dan omzet antara dua produk dalam periode waktu yang sama</p>
+                          <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">
+                            Perbandingan {compMode === 'product' ? 'Produk' : compMode === 'brand' ? 'Merk / Brand' : 'Kategori'} Secara Berdampingan
+                          </h3>
+                          <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                            Bandingkan tren volume penjualan dan omzet antara dua {compMode === 'product' ? 'produk' : compMode === 'brand' ? 'merk' : 'kategori'} dalam periode waktu yang sama
+                          </p>
                         </div>
                       </div>
                       
-                      {/* Metric Select Toggle & Pin Button */}
-                      <div className="flex items-center gap-2 self-start sm:self-auto">
+                      {/* Metric Select Toggle, Mode Switcher & Pin Button */}
+                      <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                        {/* Mode Tabs */}
+                        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setCompMode('product')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              compMode === 'product'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-white'
+                            }`}
+                          >
+                            Produk
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCompMode('brand')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              compMode === 'brand'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-white'
+                            }`}
+                          >
+                            Merk
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCompMode('category')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              compMode === 'category'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-white'
+                            }`}
+                          >
+                            Kategori
+                          </button>
+                        </div>
+
                         <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200/50">
                           <button
                             type="button"
@@ -2474,192 +2515,470 @@ export default function SalesProducts() {
                       )}
                     </div>
 
-                    {/* Selection Searchable Inputs Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
-                      {/* Product A Selector */}
-                      <div className="flex flex-col gap-1.5 relative">
-                        <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider flex items-center justify-between">
-                          <span className="flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                            Produk Pertama (A):
-                          </span>
-                          {selectedCompProductA && (
-                            <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={`[${selectedCompProductA.sku}] ${selectedCompProductA.name}`}>
-                              Terpilih: [{selectedCompProductA.sku}] {selectedCompProductA.name}
+                    {/* Selection Searchable Inputs Grid (Product mode) */}
+                    {compMode === 'product' && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                        {/* Product A Selector */}
+                        <div className="flex flex-col gap-1.5 relative">
+                          <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                              Produk Pertama (A):
                             </span>
-                          )}
-                        </span>
-                        <div className="relative">
-                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                          <input
-                            type="text"
-                            placeholder="Ketik untuk cari SKU atau Nama Produk A..."
-                            value={compSearchA}
-                            onChange={e => {
-                              setCompSearchA(e.target.value);
-                              setCompDropdownOpenA(true);
-                            }}
-                            onFocus={() => setCompDropdownOpenA(true)}
-                            className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
-                          />
-                          {compSearchA && (
-                            <button
-                              type="button"
-                              onClick={() => setCompSearchA('')}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
-                            >
-                              ✕
-                            </button>
+                            {selectedCompProductA && (
+                              <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={`[${selectedCompProductA.sku}] ${selectedCompProductA.name}`}>
+                                Terpilih: [{selectedCompProductA.sku}] {selectedCompProductA.name}
+                              </span>
+                            )}
+                          </span>
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Ketik untuk cari SKU atau Nama Produk A..."
+                              value={compSearchA}
+                              onChange={e => {
+                                setCompSearchA(e.target.value);
+                                setCompDropdownOpenA(true);
+                              }}
+                              onFocus={() => setCompDropdownOpenA(true)}
+                              className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
+                            />
+                            {compSearchA && (
+                              <button
+                                type="button"
+                                onClick={() => setCompSearchA('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          {compDropdownOpenA && (
+                            <>
+                              <div 
+                                className="fixed inset-0 z-20" 
+                                onClick={() => setCompDropdownOpenA(false)} 
+                              />
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
+                                {filteredCompOptionsA.length > 0 ? (
+                                  filteredCompOptionsA.map(prod => (
+                                    <div
+                                      key={`comp-opt-a-${prod.sku}`}
+                                      onClick={() => {
+                                        setSelectedCompProductASku(prod.sku);
+                                        setCompSearchA('');
+                                        setCompDropdownOpenA(false);
+                                      }}
+                                      className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-indigo-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
+                                        prod.sku === selectedCompProductASku ? 'bg-indigo-50 font-black text-indigo-700' : 'text-slate-700 font-medium'
+                                      }`}
+                                    >
+                                      <div className="truncate pr-2">
+                                        <span className="font-mono font-bold text-indigo-600 mr-1.5">[{prod.sku}]</span>
+                                        <span>{prod.name}</span>
+                                      </div>
+                                      <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatNumberIndo(prod.totalQty)} pcs</span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="px-4 py-3 text-xs text-slate-400 text-center">Produk tidak ditemukan</div>
+                                )}
+                              </div>
+                            </>
                           )}
                         </div>
-                        {compDropdownOpenA && (
-                          <>
-                            <div 
-                              className="fixed inset-0 z-20" 
-                              onClick={() => setCompDropdownOpenA(false)} 
-                            />
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
-                              {filteredCompOptionsA.length > 0 ? (
-                                filteredCompOptionsA.map(prod => (
-                                  <div
-                                    key={`comp-opt-a-${prod.sku}`}
-                                    onClick={() => {
-                                      setSelectedCompProductASku(prod.sku);
-                                      setCompSearchA('');
-                                      setCompDropdownOpenA(false);
-                                    }}
-                                    className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-indigo-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
-                                      prod.sku === selectedCompProductASku ? 'bg-indigo-50 font-black text-indigo-700' : 'text-slate-700 font-medium'
-                                    }`}
-                                  >
-                                    <div className="truncate pr-2">
-                                      <span className="font-mono font-bold text-indigo-600 mr-1.5">[{prod.sku}]</span>
-                                      <span>{prod.name}</span>
-                                    </div>
-                                    <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatNumberIndo(prod.totalQty)} pcs</span>
-                                  </div>
-                                ))
-                              ) : (
-                                <div className="px-4 py-3 text-xs text-slate-400 text-center">Produk tidak ditemukan</div>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </div>
 
-                      {/* Product B Selector */}
-                      <div className="flex flex-col gap-1.5 relative">
-                        <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center justify-between">
-                          <span className="flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            Produk Kedua (B):
-                          </span>
-                          {selectedCompProductB && (
-                            <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={`[${selectedCompProductB.sku}] ${selectedCompProductB.name}`}>
-                              Terpilih: [{selectedCompProductB.sku}] {selectedCompProductB.name}
+                        {/* Product B Selector */}
+                        <div className="flex flex-col gap-1.5 relative">
+                          <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              Produk Kedua (B):
                             </span>
-                          )}
-                        </span>
-                        <div className="relative">
-                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                          <input
-                            type="text"
-                            placeholder="Ketik untuk cari SKU atau Nama Produk B..."
-                            value={compSearchB}
-                            onChange={e => {
-                              setCompSearchB(e.target.value);
-                              setCompDropdownOpenB(true);
-                            }}
-                            onFocus={() => setCompDropdownOpenB(true)}
-                            className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
-                          />
-                          {compSearchB && (
-                            <button
-                              type="button"
-                              onClick={() => setCompSearchB('')}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
-                            >
-                              ✕
-                            </button>
+                            {selectedCompProductB && (
+                              <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={`[${selectedCompProductB.sku}] ${selectedCompProductB.name}`}>
+                                Terpilih: [{selectedCompProductB.sku}] {selectedCompProductB.name}
+                              </span>
+                            )}
+                          </span>
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Ketik untuk cari SKU atau Nama Produk B..."
+                              value={compSearchB}
+                              onChange={e => {
+                                setCompSearchB(e.target.value);
+                                setCompDropdownOpenB(true);
+                              }}
+                              onFocus={() => setCompDropdownOpenB(true)}
+                              className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
+                            />
+                            {compSearchB && (
+                              <button
+                                type="button"
+                                onClick={() => setCompSearchB('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          {compDropdownOpenB && (
+                            <>
+                              <div 
+                                className="fixed inset-0 z-20" 
+                                onClick={() => setCompDropdownOpenB(false)} 
+                              />
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
+                                {filteredCompOptionsB.length > 0 ? (
+                                  filteredCompOptionsB.map(prod => (
+                                    <div
+                                      key={`comp-opt-b-${prod.sku}`}
+                                      onClick={() => {
+                                        setSelectedCompProductBSku(prod.sku);
+                                        setCompSearchB('');
+                                        setCompDropdownOpenB(false);
+                                      }}
+                                      className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-emerald-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
+                                        prod.sku === selectedCompProductBSku ? 'bg-emerald-50 font-black text-emerald-700' : 'text-slate-700 font-medium'
+                                      }`}
+                                    >
+                                      <div className="truncate pr-2">
+                                        <span className="font-mono font-bold text-emerald-600 mr-1.5">[{prod.sku}]</span>
+                                        <span>{prod.name}</span>
+                                      </div>
+                                      <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatNumberIndo(prod.totalQty)} pcs</span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="px-4 py-3 text-xs text-slate-400 text-center">Produk tidak ditemukan</div>
+                                )}
+                              </div>
+                            </>
                           )}
                         </div>
-                        {compDropdownOpenB && (
-                          <>
-                            <div 
-                              className="fixed inset-0 z-20" 
-                              onClick={() => setCompDropdownOpenB(false)} 
-                            />
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
-                              {filteredCompOptionsB.length > 0 ? (
-                                filteredCompOptionsB.map(prod => (
-                                  <div
-                                    key={`comp-opt-b-${prod.sku}`}
-                                    onClick={() => {
-                                      setSelectedCompProductBSku(prod.sku);
-                                      setCompSearchB('');
-                                      setCompDropdownOpenB(false);
-                                    }}
-                                    className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-emerald-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
-                                      prod.sku === selectedCompProductBSku ? 'bg-emerald-50 font-black text-emerald-700' : 'text-slate-700 font-medium'
-                                    }`}
-                                  >
-                                    <div className="truncate pr-2">
-                                      <span className="font-mono font-bold text-emerald-600 mr-1.5">[{prod.sku}]</span>
-                                      <span>{prod.name}</span>
-                                    </div>
-                                    <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatNumberIndo(prod.totalQty)} pcs</span>
-                                  </div>
-                                ))
-                              ) : (
-                                <div className="px-4 py-3 text-xs text-slate-400 text-center">Produk tidak ditemukan</div>
-                              )}
-                            </div>
-                          </>
-                        )}
                       </div>
-                    </div>
+                    )}
+
+                    {/* Selection Searchable Inputs Grid (Brand mode) */}
+                    {compMode === 'brand' && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                        {/* Brand A Selector */}
+                        <div className="flex flex-col gap-1.5 relative">
+                          <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                              Merk Pertama (A):
+                            </span>
+                            {selectedCompBrandA && (
+                              <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={selectedCompBrandA}>
+                                Terpilih: {selectedCompBrandA}
+                              </span>
+                            )}
+                          </span>
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Ketik untuk cari Merk A..."
+                              value={compBrandSearchA}
+                              onChange={e => {
+                                setCompBrandSearchA(e.target.value);
+                                setCompBrandDropdownA(true);
+                              }}
+                              onFocus={() => setCompBrandDropdownA(true)}
+                              className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
+                            />
+                            {compBrandSearchA && (
+                              <button
+                                type="button"
+                                onClick={() => setCompBrandSearchA('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          {compBrandDropdownA && (
+                            <>
+                              <div className="fixed inset-0 z-20" onClick={() => setCompBrandDropdownA(false)} />
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
+                                {filteredCompBrandOptionsA.length > 0 ? (
+                                  filteredCompBrandOptionsA.map(b => (
+                                    <div
+                                      key={`comp-opt-brand-a-${b.name}`}
+                                      onClick={() => {
+                                        setSelectedCompBrandA(b.name);
+                                        setCompBrandSearchA('');
+                                        setCompBrandDropdownA(false);
+                                      }}
+                                      className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-indigo-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
+                                        b.name === selectedCompBrandA ? 'bg-indigo-50 font-black text-indigo-700' : 'text-slate-700 font-medium'
+                                      }`}
+                                    >
+                                      <span className="font-bold">{b.name}</span>
+                                      <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatRupiah(b.revenue)}</span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="px-4 py-3 text-xs text-slate-400 text-center">Merk tidak ditemukan</div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Brand B Selector */}
+                        <div className="flex flex-col gap-1.5 relative">
+                          <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              Merk Kedua (B):
+                            </span>
+                            {selectedCompBrandB && (
+                              <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={selectedCompBrandB}>
+                                Terpilih: {selectedCompBrandB}
+                              </span>
+                            )}
+                          </span>
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Ketik untuk cari Merk B..."
+                              value={compBrandSearchB}
+                              onChange={e => {
+                                setCompBrandSearchB(e.target.value);
+                                setCompBrandDropdownB(true);
+                              }}
+                              onFocus={() => setCompBrandDropdownB(true)}
+                              className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
+                            />
+                            {compBrandSearchB && (
+                              <button
+                                type="button"
+                                onClick={() => setCompBrandSearchB('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          {compBrandDropdownB && (
+                            <>
+                              <div className="fixed inset-0 z-20" onClick={() => setCompBrandDropdownB(false)} />
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
+                                {filteredCompBrandOptionsB.length > 0 ? (
+                                  filteredCompBrandOptionsB.map(b => (
+                                    <div
+                                      key={`comp-opt-brand-b-${b.name}`}
+                                      onClick={() => {
+                                        setSelectedCompBrandB(b.name);
+                                        setCompBrandSearchB('');
+                                        setCompBrandDropdownB(false);
+                                      }}
+                                      className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-emerald-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
+                                        b.name === selectedCompBrandB ? 'bg-emerald-50 font-black text-emerald-700' : 'text-slate-700 font-medium'
+                                      }`}
+                                    >
+                                      <span className="font-bold">{b.name}</span>
+                                      <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatRupiah(b.revenue)}</span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="px-4 py-3 text-xs text-slate-400 text-center">Merk tidak ditemukan</div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Selection Searchable Inputs Grid (Category mode) */}
+                    {compMode === 'category' && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                        {/* Category A Selector */}
+                        <div className="flex flex-col gap-1.5 relative">
+                          <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                              Kategori Pertama (A):
+                            </span>
+                            {selectedCompCategoryA && (
+                              <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={selectedCompCategoryA}>
+                                Terpilih: {selectedCompCategoryA}
+                              </span>
+                            )}
+                          </span>
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Ketik untuk cari Kategori A..."
+                              value={compCatSearchA}
+                              onChange={e => {
+                                setCompCatSearchA(e.target.value);
+                                setCompCatDropdownA(true);
+                              }}
+                              onFocus={() => setCompCatDropdownA(true)}
+                              className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
+                            />
+                            {compCatSearchA && (
+                              <button
+                                type="button"
+                                onClick={() => setCompCatSearchA('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          {compCatDropdownA && (
+                            <>
+                              <div className="fixed inset-0 z-20" onClick={() => setCompCatDropdownA(false)} />
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
+                                {filteredCompCatOptionsA.length > 0 ? (
+                                  filteredCompCatOptionsA.map(c => (
+                                    <div
+                                      key={`comp-opt-cat-a-${c.name}`}
+                                      onClick={() => {
+                                        setSelectedCompCategoryA(c.name);
+                                        setCompCatSearchA('');
+                                        setCompCatDropdownA(false);
+                                      }}
+                                      className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-indigo-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
+                                        c.name === selectedCompCategoryA ? 'bg-indigo-50 font-black text-indigo-700' : 'text-slate-700 font-medium'
+                                      }`}
+                                    >
+                                      <span className="font-bold">{c.name}</span>
+                                      <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatRupiah(c.revenue)}</span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="px-4 py-3 text-xs text-slate-400 text-center">Kategori tidak ditemukan</div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Category B Selector */}
+                        <div className="flex flex-col gap-1.5 relative">
+                          <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              Kategori Kedua (B):
+                            </span>
+                            {selectedCompCategoryB && (
+                              <span className="text-[9px] text-slate-500 font-bold truncate max-w-[200px]" title={selectedCompCategoryB}>
+                                Terpilih: {selectedCompCategoryB}
+                              </span>
+                            )}
+                          </span>
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Ketik untuk cari Kategori B..."
+                              value={compCatSearchB}
+                              onChange={e => {
+                                setCompCatSearchB(e.target.value);
+                                setCompCatDropdownB(true);
+                              }}
+                              onFocus={() => setCompCatDropdownB(true)}
+                              className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-xl text-xs font-bold text-slate-700 shadow-sm"
+                            />
+                            {compCatSearchB && (
+                              <button
+                                type="button"
+                                onClick={() => setCompCatSearchB('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          {compCatDropdownB && (
+                            <>
+                              <div className="fixed inset-0 z-20" onClick={() => setCompCatDropdownB(false)} />
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
+                                {filteredCompCatOptionsB.length > 0 ? (
+                                  filteredCompCatOptionsB.map(c => (
+                                    <div
+                                      key={`comp-opt-cat-b-${c.name}`}
+                                      onClick={() => {
+                                        setSelectedCompCategoryB(c.name);
+                                        setCompCatSearchB('');
+                                        setCompCatDropdownB(false);
+                                      }}
+                                      className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-emerald-50/70 border-b border-slate-50 flex items-center justify-between transition-colors ${
+                                        c.name === selectedCompCategoryB ? 'bg-emerald-50 font-black text-emerald-700' : 'text-slate-700 font-medium'
+                                      }`}
+                                    >
+                                      <span className="font-bold">{c.name}</span>
+                                      <span className="text-[10px] text-slate-400 font-mono shrink-0">{formatRupiah(c.revenue)}</span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="px-4 py-3 text-xs text-slate-400 text-center">Kategori tidak ditemukan</div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Comparison Cards Side-by-Side & Combined Chart */}
-                    {selectedCompProductA && selectedCompProductB ? (
+                    {((compMode === 'product' && selectedCompProductA && selectedCompProductB) ||
+                      (compMode === 'brand' && selectedCompBrandObjA && selectedCompBrandObjB) ||
+                      (compMode === 'category' && selectedCompCategoryObjA && selectedCompCategoryObjB)) ? (
                       <div className="space-y-6 animate-fade-in">
                         {/* Stats Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                          {/* Card Product A */}
+                          {/* Card Item A */}
                           <div className="bg-gradient-to-br from-indigo-50/45 to-white border border-indigo-100 rounded-2xl p-5 space-y-4">
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <span className="text-[9px] bg-indigo-100 text-indigo-700 font-black px-2 py-0.5 rounded uppercase font-mono">
-                                  Produk A - {selectedCompProductA.sku}
+                                  {compMode === 'product' ? `Produk A - ${selectedCompProductA?.sku}` : compMode === 'brand' ? 'Merk A' : 'Kategori A'}
                                 </span>
                                 <h4 className="text-xs font-black text-slate-800 mt-2 line-clamp-2 min-h-[2rem]">
-                                  {selectedCompProductA.name}
+                                  {compMode === 'product' ? selectedCompProductA?.name : compMode === 'brand' ? selectedCompBrandObjA?.name : selectedCompCategoryObjA?.name}
                                 </h4>
                               </div>
-                              <div className="text-right shrink-0">
-                                <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
-                                <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductA.brand}</span>
-                              </div>
+                              {compMode === 'product' && selectedCompProductA && (
+                                <div className="text-right shrink-0">
+                                  <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
+                                  <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductA.brand}</span>
+                                </div>
+                              )}
                             </div>
 
-                            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-indigo-100/40">
+                            <div className={`grid ${compMode === 'product' ? 'grid-cols-3' : 'grid-cols-2'} gap-3 pt-2 border-t border-indigo-100/40`}>
                               <div className="bg-white p-3 rounded-xl border border-slate-100">
                                 <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
                                 <p className="text-xs font-black text-slate-800 mt-1 font-mono">
-                                  {formatNumberIndo(selectedCompProductA.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductA.unit}</span>
+                                  {formatNumberIndo(compMode === 'product' ? selectedCompProductA?.totalQty : compMode === 'brand' ? selectedCompBrandObjA?.qty : selectedCompCategoryObjA?.qty)} <span className="text-[9px] text-slate-400 font-normal">{compMode === 'product' ? selectedCompProductA?.unit : 'pcs'}</span>
                                 </p>
                               </div>
                               <div className="bg-white p-3 rounded-xl border border-slate-100">
                                 <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
                                 <p className="text-xs font-black text-indigo-600 mt-1 font-mono truncate">
-                                  {formatRupiah(selectedCompProductA.totalSales)}
+                                  {formatRupiah(compMode === 'product' ? selectedCompProductA?.totalSales : compMode === 'brand' ? selectedCompBrandObjA?.revenue : selectedCompCategoryObjA?.revenue)}
                                 </p>
                               </div>
-                              <div className="bg-white p-3 rounded-xl border border-slate-100">
-                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
-                                <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
-                                  {formatRupiah(selectedCompProductA.totalQty > 0 ? selectedCompProductA.totalSales / selectedCompProductA.totalQty : 0)}
-                                </p>
-                              </div>
+                              {compMode === 'product' && selectedCompProductA && (
+                                <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                  <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
+                                  <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
+                                    {formatRupiah(selectedCompProductA.totalQty > 0 ? selectedCompProductA.totalSales / selectedCompProductA.totalQty : 0)}
+                                  </p>
+                                </div>
+                              )}
                             </div>
 
                             {/* Contribution Share Badge */}
@@ -2667,48 +2986,54 @@ export default function SalesProducts() {
                               <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-indigo-100/30">
                                 <span>Kontribusi Toko:</span>
                                 <span className="text-indigo-600 font-black">
-                                  {((selectedCompProductA.totalSales / (compStats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
+                                  {compMode === 'product'
+                                    ? `${((selectedCompProductA!.totalSales / (compStats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet`
+                                    : `${(compMode === 'brand' ? selectedCompBrandObjA?.percentage : selectedCompCategoryObjA?.percentage || 0).toFixed(1)}% Omzet`}
                                 </span>
                               </div>
                             )}
                           </div>
 
-                          {/* Card Product B */}
+                          {/* Card Item B */}
                           <div className="bg-gradient-to-br from-emerald-50/45 to-white border border-emerald-100 rounded-2xl p-5 space-y-4">
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <span className="text-[9px] bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded uppercase font-mono">
-                                  Produk B - {selectedCompProductB.sku}
+                                  {compMode === 'product' ? `Produk B - ${selectedCompProductB?.sku}` : compMode === 'brand' ? 'Merk B' : 'Kategori B'}
                                 </span>
                                 <h4 className="text-xs font-black text-slate-800 mt-2 line-clamp-2 min-h-[2rem]">
-                                  {selectedCompProductB.name}
+                                  {compMode === 'product' ? selectedCompProductB?.name : compMode === 'brand' ? selectedCompBrandObjB?.name : selectedCompCategoryObjB?.name}
                                 </h4>
                               </div>
-                              <div className="text-right shrink-0">
-                                <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
-                                <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductB.brand}</span>
-                              </div>
+                              {compMode === 'product' && selectedCompProductB && (
+                                <div className="text-right shrink-0">
+                                  <span className="text-[10px] text-slate-400 font-bold block">Brand</span>
+                                  <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block">{selectedCompProductB.brand}</span>
+                                </div>
+                              )}
                             </div>
 
-                            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-emerald-100/40">
+                            <div className={`grid ${compMode === 'product' ? 'grid-cols-3' : 'grid-cols-2'} gap-3 pt-2 border-t border-emerald-100/40`}>
                               <div className="bg-white p-3 rounded-xl border border-slate-100">
                                 <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
                                 <p className="text-xs font-black text-slate-800 mt-1 font-mono">
-                                  {formatNumberIndo(selectedCompProductB.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductB.unit}</span>
+                                  {formatNumberIndo(compMode === 'product' ? selectedCompProductB?.totalQty : compMode === 'brand' ? selectedCompBrandObjB?.qty : selectedCompCategoryObjB?.qty)} <span className="text-[9px] text-slate-400 font-normal">{compMode === 'product' ? selectedCompProductB?.unit : 'pcs'}</span>
                                 </p>
                               </div>
                               <div className="bg-white p-3 rounded-xl border border-slate-100">
                                 <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
                                 <p className="text-xs font-black text-emerald-600 mt-1 font-mono truncate">
-                                  {formatRupiah(selectedCompProductB.totalSales)}
+                                  {formatRupiah(compMode === 'product' ? selectedCompProductB?.totalSales : compMode === 'brand' ? selectedCompBrandObjB?.revenue : selectedCompCategoryObjB?.revenue)}
                                 </p>
                               </div>
-                              <div className="bg-white p-3 rounded-xl border border-slate-100">
-                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
-                                <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
-                                  {formatRupiah(selectedCompProductB.totalQty > 0 ? selectedCompProductB.totalSales / selectedCompProductB.totalQty : 0)}
-                                </p>
-                              </div>
+                              {compMode === 'product' && selectedCompProductB && (
+                                <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                  <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
+                                  <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
+                                    {formatRupiah(selectedCompProductB.totalQty > 0 ? selectedCompProductB.totalSales / selectedCompProductB.totalQty : 0)}
+                                  </p>
+                                </div>
+                              )}
                             </div>
 
                             {/* Contribution Share Badge */}
@@ -2716,7 +3041,9 @@ export default function SalesProducts() {
                               <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-1.5 border-t border-emerald-100/30">
                                 <span>Kontribusi Toko:</span>
                                 <span className="text-emerald-600 font-black">
-                                  {((selectedCompProductB.totalSales / (compStats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet
+                                  {compMode === 'product'
+                                    ? `${((selectedCompProductB!.totalSales / (compStats.totalRevenue || 1)) * 100).toFixed(1)}% Omzet`
+                                    : `${(compMode === 'brand' ? selectedCompBrandObjB?.percentage : selectedCompCategoryObjB?.percentage || 0).toFixed(1)}% Omzet`}
                                 </span>
                               </div>
                             )}

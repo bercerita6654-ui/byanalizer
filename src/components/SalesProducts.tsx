@@ -537,8 +537,8 @@ export default function SalesProducts() {
     let totalQty = 0;
     let maxSalesProduct: ProductPerformance | null = null;
 
-    const categoryStats: Record<string, { revenue: number; qty: number }> = {};
-    const brandStats: Record<string, { revenue: number; qty: number }> = {};
+    const categoryStats: Record<string, { revenue: number; qty: number; skus: Set<string> }> = {};
+    const brandStats: Record<string, { revenue: number; qty: number; skus: Set<string> }> = {};
 
     filteredProducts.forEach(p => {
       totalRevenue += p.totalSales;
@@ -550,17 +550,19 @@ export default function SalesProducts() {
 
       // Category aggregation
       if (!categoryStats[p.category]) {
-        categoryStats[p.category] = { revenue: 0, qty: 0 };
+        categoryStats[p.category] = { revenue: 0, qty: 0, skus: new Set() };
       }
       categoryStats[p.category].revenue += p.totalSales;
       categoryStats[p.category].qty += p.totalQty;
+      categoryStats[p.category].skus.add(p.sku);
 
       // Brand aggregation
       if (!brandStats[p.brand]) {
-        brandStats[p.brand] = { revenue: 0, qty: 0 };
+        brandStats[p.brand] = { revenue: 0, qty: 0, skus: new Set() };
       }
       brandStats[p.brand].revenue += p.totalSales;
       brandStats[p.brand].qty += p.totalQty;
+      brandStats[p.brand].skus.add(p.sku);
     });
 
     // Top Category
@@ -592,8 +594,20 @@ export default function SalesProducts() {
       topCategoryRevenue,
       topBrand,
       topBrandRevenue,
-      categorySummary: Object.entries(categoryStats).map(([name, d]) => ({ name, ...d })).sort((a, b) => b.revenue - a.revenue),
-      brandSummary: Object.entries(brandStats).map(([name, d]) => ({ name, ...d })).sort((a, b) => b.revenue - a.revenue),
+      categorySummary: Object.entries(categoryStats).map(([name, d]) => ({ 
+        name, 
+        revenue: d.revenue, 
+        qty: d.qty, 
+        skuCount: d.skus.size,
+        percentage: totalRevenue > 0 ? (d.revenue / totalRevenue) * 100 : 0 
+      })).sort((a, b) => b.revenue - a.revenue),
+      brandSummary: Object.entries(brandStats).map(([name, d]) => ({ 
+        name, 
+        revenue: d.revenue, 
+        qty: d.qty, 
+        skuCount: d.skus.size,
+        percentage: totalRevenue > 0 ? (d.revenue / totalRevenue) * 100 : 0 
+      })).sort((a, b) => b.revenue - a.revenue),
     };
   }, [filteredProducts]);
 
@@ -952,30 +966,33 @@ export default function SalesProducts() {
     if (compAggregatedProducts.length === 0) return null;
     let totalRevenue = 0;
     let totalQty = 0;
-    const categoryStats: Record<string, { revenue: number; qty: number }> = {};
-    const brandStats: Record<string, { revenue: number; qty: number }> = {};
+    const categoryStats: Record<string, { revenue: number; qty: number; skus: Set<string> }> = {};
+    const brandStats: Record<string, { revenue: number; qty: number; skus: Set<string> }> = {};
 
     compAggregatedProducts.forEach(p => {
       totalRevenue += p.totalSales;
       totalQty += p.totalQty;
 
       if (!categoryStats[p.category]) {
-        categoryStats[p.category] = { revenue: 0, qty: 0 };
+        categoryStats[p.category] = { revenue: 0, qty: 0, skus: new Set() };
       }
       categoryStats[p.category].revenue += p.totalSales;
       categoryStats[p.category].qty += p.totalQty;
+      categoryStats[p.category].skus.add(p.sku);
 
       if (!brandStats[p.brand]) {
-        brandStats[p.brand] = { revenue: 0, qty: 0 };
+        brandStats[p.brand] = { revenue: 0, qty: 0, skus: new Set() };
       }
       brandStats[p.brand].revenue += p.totalSales;
       brandStats[p.brand].qty += p.totalQty;
+      brandStats[p.brand].skus.add(p.sku);
     });
 
     const brandSummary = Object.entries(brandStats).map(([name, data]) => ({
       name,
       revenue: data.revenue,
       qty: data.qty,
+      skuCount: data.skus.size,
       percentage: totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0
     })).sort((a, b) => b.revenue - a.revenue);
 
@@ -983,6 +1000,7 @@ export default function SalesProducts() {
       name,
       revenue: data.revenue,
       qty: data.qty,
+      skuCount: data.skus.size,
       percentage: totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0
     })).sort((a, b) => b.revenue - a.revenue);
 
@@ -1425,7 +1443,7 @@ export default function SalesProducts() {
       return [
         (i + 1).toString(),
         b.name,
-        `${formatNumberIndo(b.qty)} pcs`,
+        `${b.skuCount} SKU (${formatNumberIndo(b.qty)} pcs)`,
         formatRupiah(b.revenue),
         `${pct.toFixed(1)}%`
       ];
@@ -1437,7 +1455,7 @@ export default function SalesProducts() {
       return [
         (i + 1).toString(),
         c.name,
-        `${formatNumberIndo(c.qty)} pcs`,
+        `${c.skuCount} SKU (${formatNumberIndo(c.qty)} pcs)`,
         formatRupiah(c.revenue),
         `${pct.toFixed(1)}%`
       ];
@@ -1448,15 +1466,15 @@ export default function SalesProducts() {
     autoTable(doc, {
       startY: currentY,
       margin: { left: 15, right: 110 },
-      head: [['No', 'Merk / Brand', 'Qty', 'Total Omzet', 'Kontr.']],
+      head: [['No', 'Merk / Brand', 'Jml SKU / Qty', 'Total Omzet', 'Kontr.']],
       body: brandRows.slice(0, 10), // Show top 10 brands
       theme: 'striped',
       headStyles: { fillColor: [79, 70, 229], fontSize: 7, fontStyle: 'bold', halign: 'center' }, // Indigo-600
       bodyStyles: { fontSize: 7 },
       columnStyles: {
         0: { cellWidth: 8, halign: 'center' },
-        1: { cellWidth: 32 },
-        2: { cellWidth: 15, halign: 'right' },
+        1: { cellWidth: 26 },
+        2: { cellWidth: 22, halign: 'right' },
         3: { cellWidth: 22, halign: 'right' },
         4: { cellWidth: 12, halign: 'right' }
       },
@@ -1467,15 +1485,15 @@ export default function SalesProducts() {
     autoTable(doc, {
       startY: currentY,
       margin: { left: 110, right: 15 },
-      head: [['No', 'Kategori', 'Qty', 'Total Omzet', 'Kontr.']],
+      head: [['No', 'Kategori', 'Jml SKU / Qty', 'Total Omzet', 'Kontr.']],
       body: categoryRows.slice(0, 10), // Show top 10 categories
       theme: 'striped',
       headStyles: { fillColor: [16, 185, 129], fontSize: 7, fontStyle: 'bold', halign: 'center' }, // Emerald-500
       bodyStyles: { fontSize: 7 },
       columnStyles: {
         0: { cellWidth: 8, halign: 'center' },
-        1: { cellWidth: 32 },
-        2: { cellWidth: 15, halign: 'right' },
+        1: { cellWidth: 26 },
+        2: { cellWidth: 22, halign: 'right' },
         3: { cellWidth: 22, halign: 'right' },
         4: { cellWidth: 12, halign: 'right' }
       },
@@ -2151,7 +2169,9 @@ export default function SalesProducts() {
                                   <span className="truncate text-slate-800 font-extrabold">{cat.name}</span>
                                 </div>
                                 <div className="flex items-center gap-3 shrink-0 text-right font-mono">
-                                  <span className="text-slate-400 text-[10px]">{formatNumberIndo(cat.qty)} pcs</span>
+                                  <span className="text-slate-500 text-[10px] font-bold" title={`${cat.skuCount} SKU, Total ${formatNumberIndo(cat.qty)} pcs`}>
+                                    {cat.skuCount} SKU <span className="text-slate-400 font-normal">({formatNumberIndo(cat.qty)} pcs)</span>
+                                  </span>
                                   <span className="text-indigo-600 font-black">{formatRupiah(cat.revenue)}</span>
                                   <span className="text-[10px] text-indigo-500 font-black min-w-[36px] bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100/30">{pct.toFixed(1)}%</span>
                                 </div>
@@ -2289,7 +2309,9 @@ export default function SalesProducts() {
                                     <span className="truncate" title={br.name}>{br.name}</span>
                                   </div>
                                   <div className="flex items-center gap-2.5 shrink-0 text-right font-mono">
-                                    <span className="text-slate-400 text-[10px]">{formatNumberIndo(br.qty)} pcs</span>
+                                    <span className="text-slate-500 text-[10px] font-bold" title={`${br.skuCount} SKU, Total ${formatNumberIndo(br.qty)} pcs`}>
+                                      {br.skuCount} SKU <span className="text-slate-400 font-normal">({formatNumberIndo(br.qty)} pcs)</span>
+                                    </span>
                                     <span className="text-slate-600 font-extrabold">{formatRupiah(br.revenue)}</span>
                                     <span className="text-[10px] text-indigo-600 font-black min-w-[32px]">{pct.toFixed(1)}%</span>
                                   </div>

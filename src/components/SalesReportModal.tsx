@@ -1725,7 +1725,7 @@ export default function SalesReportModal({
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(255, 255, 255);
-      doc.text('LAPORAN PENJUALAN TERPADU & ANALISA PERIODE', 18, 19);
+      doc.text('LAPORAN PENJUALAN MINGGUAN', 18, 19);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.8);
@@ -1810,7 +1810,7 @@ export default function SalesReportModal({
             formatGrowthPct(currSummary.aov, m2Summary.aov),
           ],
           [
-            'Penjualan Kanal Instan (Gojek/Grab)',
+            'Penjualan Instan',
             formatRupiah(m2Summary.totalInstan),
             formatRupiah(m1Summary.totalInstan),
             formatRupiah(currSummary.totalInstan),
@@ -1818,7 +1818,7 @@ export default function SalesReportModal({
             formatGrowthPct(currSummary.totalInstan, m2Summary.totalInstan),
           ],
           [
-            'Penjualan Kanal Reguler (Ekspedisi)',
+            'Penjualan Reguler',
             formatRupiah(m2Summary.totalReguler),
             formatRupiah(m1Summary.totalReguler),
             formatRupiah(currSummary.totalReguler),
@@ -1826,7 +1826,7 @@ export default function SalesReportModal({
             formatGrowthPct(currSummary.totalReguler, m2Summary.totalReguler),
           ],
           [
-            'Penjualan Kanal Manual (Kasir/WA)',
+            'Penjualan Manual',
             formatRupiah(m2Summary.totalManual),
             formatRupiah(m1Summary.totalManual),
             formatRupiah(currSummary.totalManual),

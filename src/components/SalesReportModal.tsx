@@ -117,6 +117,35 @@ export function formatDateShort(dateStr: string): string {
   return `${day} ${monthNames[monthIndex] || ''} ${year}`;
 }
 
+export function formatRangeWithTag(startDate: string, endDate: string, tag: string): string {
+  const partsStart = startDate.split('-');
+  const partsEnd = endDate.split('-');
+  if (partsStart.length < 3 || partsEnd.length < 3) {
+    return `${startDate} - ${endDate} (${tag})`;
+  }
+  const dayStart = parseInt(partsStart[2], 10);
+  const monthStartIdx = parseInt(partsStart[1], 10) - 1;
+  const yearStart = partsStart[0];
+
+  const dayEnd = parseInt(partsEnd[2], 10);
+  const monthEndIdx = parseInt(partsEnd[1], 10) - 1;
+  const yearEnd = partsEnd[0];
+
+  const fullMonthNames = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+  const shortMonthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+  if (yearStart === yearEnd && monthStartIdx === monthEndIdx) {
+    return `${dayStart} - ${dayEnd} ${fullMonthNames[monthStartIdx]} ${yearStart} (${tag})`;
+  } else if (yearStart === yearEnd) {
+    return `${dayStart} ${shortMonthNames[monthStartIdx]} - ${dayEnd} ${shortMonthNames[monthEndIdx]} ${yearStart} (${tag})`;
+  } else {
+    return `${dayStart} ${shortMonthNames[monthStartIdx]} ${yearStart} - ${dayEnd} ${shortMonthNames[monthEndIdx]} ${yearEnd} (${tag})`;
+  }
+}
+
 export function formatGrowthPct(curr: number, prev: number): string {
   if (prev === 0) {
     return curr > 0 ? '+100.0%' : '0.0%';
@@ -1854,9 +1883,9 @@ export default function SalesReportModal({
         autoTable(doc, {
           head: [[
             'Metrik Kinerja Penjualan',
-            `2 Bulan Lalu (M-2)\n${formatDateShort(m2Start)} - ${formatDateShort(m2End)}`,
-            `1 Bulan Lalu (M-1)\n${formatDateShort(m1Start)} - ${formatDateShort(m1End)}`,
-            `Periode Ini (M)\n${formatDateShort(realStart)} - ${formatDateShort(realEnd)}`,
+            formatRangeWithTag(m2Start, m2End, 'M-2'),
+            formatRangeWithTag(m1Start, m1End, 'M-1'),
+            formatRangeWithTag(realStart, realEnd, 'M'),
             'Pertumbuhan vs M-1',
             'Pertumbuhan vs M-2'
           ]],
@@ -1866,10 +1895,10 @@ export default function SalesReportModal({
           headStyles: {
             fillColor: [79, 70, 229],
             textColor: [255, 255, 255],
-            fontSize: 6.2,
+            fontSize: 5.8,
             fontStyle: 'bold',
             halign: 'center',
-            cellPadding: 1.3
+            cellPadding: 1.2
           },
           columnStyles: {
             0: { cellWidth: 52, fontStyle: 'bold' },

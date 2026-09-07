@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DailySales, MarketingEvent, ProductPerformance } from '../types';
 import { formatRupiah, formatNumberIndo, formatDateIndo, parseProductPerformanceCSV } from '../utils';
 import { getProductsCache, setProductsCache } from '../dbCache';
-import { Download, CheckCircle2, X, Calendar, FileText, Check } from 'lucide-react';
+import { Download, CheckCircle2, X, Calendar, FileText, Check, TrendingUp } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -11,6 +11,54 @@ interface SalesReportModalProps {
   onClose: () => void;
   salesData: DailySales[];
   events: MarketingEvent[];
+  initialReportType?: 'monthly' | 'weekly' | 'daily';
+  initialSelectedWeek?: string;
+}
+
+export interface WeeklyOption {
+  weekKey: string;
+  startDate: string;
+  endDate: string;
+  label: string;
+  shortLabel: string;
+  days: DailySales[];
+  totalSales: number;
+  totalTx: number;
+  totalInstan: number;
+  totalReguler: number;
+  totalManual: number;
+  txInstan: number;
+  txReguler: number;
+  txManual: number;
+  aov: number;
+  avgDailySales: number;
+  peakDay: DailySales | null;
+  lowestDay: DailySales | null;
+  activeDaysCount: number;
+}
+
+export function getMondayOfWeekSafe(dateStr: string): string {
+  const parts = dateStr.split('-');
+  if (parts.length < 3) return dateStr;
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  const date = new Date(y, m, d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(y, m, diff);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
+}
+
+export function getSundayOfWeekSafe(mondayStr: string): string {
+  const parts = mondayStr.split('-');
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  const sunday = new Date(y, m, d + 6);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${sunday.getFullYear()}-${pad(sunday.getMonth() + 1)}-${pad(sunday.getDate())}`;
 }
 
 function getPriorMonths(yearMonthStr: string): string[] {
@@ -39,7 +87,14 @@ function formatMonthLabel(yearMonthStr: string): string {
   return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(dateObj);
 }
 
-export default function SalesReportModal({ isOpen, onClose, salesData, events }: SalesReportModalProps) {
+export default function SalesReportModal({ 
+  isOpen, 
+  onClose, 
+  salesData, 
+  events,
+  initialReportType,
+  initialSelectedWeek
+}: SalesReportModalProps) {
   // Extract all available months from the dataset
   const availableMonths = useMemo(() => {
     const monthsMap = new Map<string, { yearMonth: string; label: string; totalSales: number }>();
@@ -70,10 +125,13 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
   }, [salesData]);
 
   // Tab/Report type state
-  const [reportType, setReportType] = useState<'monthly' | 'daily'>('monthly');
+  const [reportType, setReportType] = useState<'monthly' | 'weekly' | 'daily'>('monthly');
 
-  // Selected single date state
+  // Selected single date state (Daily)
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>('');
+
+  // Selected week state (Weekly)
+  const [selectedWeeklyDate, setSelectedWeeklyDate] = useState<string>('');
 
   // Loaded products data state
   const [allProducts, setAllProducts] = useState<ProductPerformance[]>([]);
@@ -83,6 +141,103 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
   const availableDates = useMemo(() => {
     return [...salesData].map(day => day.date).sort((a, b) => b.localeCompare(a));
   }, [salesData]);
+
+  // Available weeks calculated from salesData
+  const availableWeeks = useMemo<WeeklyOption[]>(() => {
+    if (salesData.length === 0) return [];
+    
+    const weekMap = new Map<string, DailySales[]>();
+    const sorted = [...salesData].sort((a, b) => a.date.localeCompare(b.date));
+    
+    sorted.forEach(day => {
+      const monday = getMondayOfWeekSafe(day.date);
+      if (!weekMap.has(monday)) {
+        weekMap.set(monday, []);
+      }
+      weekMap.get(monday)!.push(day);
+    });
+
+    const weeks: WeeklyOption[] = [];
+
+    weekMap.forEach((days, monday) => {
+      const sunday = getSundayOfWeekSafe(monday);
+      let totalSales = 0;
+      let totalTx = 0;
+      let totalInstan = 0;
+      let totalReguler = 0;
+      let totalManual = 0;
+      let txInstan = 0;
+      let txReguler = 0;
+      let txManual = 0;
+      let peakDay: DailySales | null = null;
+      let lowestDay: DailySales | null = null;
+
+      days.forEach(d => {
+        totalSales += d.totalAll;
+        totalTx += d.txAll;
+        totalInstan += d.totalInstan;
+        totalReguler += d.totalReguler;
+        totalManual += d.totalManual;
+        txInstan += d.txInstan;
+        txReguler += d.txReguler;
+        txManual += d.txManual;
+
+        if (!peakDay || d.totalAll > peakDay.totalAll) {
+          peakDay = d;
+        }
+        if (d.totalAll > 0 && (!lowestDay || d.totalAll < lowestDay.totalAll)) {
+          lowestDay = d;
+        }
+      });
+
+      const activeDaysCount = days.length;
+      const aov = totalTx > 0 ? Math.round(totalSales / totalTx) : 0;
+      const avgDailySales = activeDaysCount > 0 ? Math.round(totalSales / activeDaysCount) : 0;
+
+      const label = `${formatDateIndo(monday)} s/d ${formatDateIndo(sunday)}`;
+      const shortLabel = `Minggu: ${formatDateIndo(monday).replace(/ \d{4}$/, '')} - ${formatDateIndo(sunday)}`;
+
+      weeks.push({
+        weekKey: monday,
+        startDate: monday,
+        endDate: sunday,
+        label,
+        shortLabel,
+        days,
+        totalSales,
+        totalTx,
+        totalInstan,
+        totalReguler,
+        totalManual,
+        txInstan,
+        txReguler,
+        txManual,
+        aov,
+        avgDailySales,
+        peakDay,
+        lowestDay: lowestDay || peakDay,
+        activeDaysCount
+      });
+    });
+
+    // Sort descending so the latest week is first
+    return weeks.sort((a, b) => b.weekKey.localeCompare(a.weekKey));
+  }, [salesData]);
+
+  // Sync initial tab and week when modal opens
+  useEffect(() => {
+    if (isOpen && initialReportType) {
+      setReportType(initialReportType);
+    }
+  }, [isOpen, initialReportType]);
+
+  useEffect(() => {
+    if (isOpen && initialSelectedWeek) {
+      setSelectedWeeklyDate(initialSelectedWeek);
+    } else if (isOpen && availableWeeks.length > 0 && !selectedWeeklyDate) {
+      setSelectedWeeklyDate(availableWeeks[0].weekKey);
+    }
+  }, [isOpen, initialSelectedWeek, availableWeeks, selectedWeeklyDate]);
 
   // Lazy fetch products when modal is open
   const fetchProductsForDailySummary = async () => {
@@ -1243,6 +1398,649 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
     }
   };
 
+  // Execute Consolidated Weekly PDF Download (Ringkasan Analitik + Analisa Produk dalam 1 PDF)
+  const executeWeeklyPDFDownload = async (weekKey: string) => {
+    const weekObj = availableWeeks.find(w => w.weekKey === weekKey) || availableWeeks[0];
+    if (!weekObj) return;
+
+    setIsExporting(true);
+    setExportStep(`Mempersiapkan data mingguan (${weekObj.startDate} s/d ${weekObj.endDate})...`);
+
+    try {
+      // Ensure product data is loaded
+      let productsList = allProducts;
+      if (productsList.length === 0) {
+        setExportStep('Mengunduh rincian data produk...');
+        const url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=68677243&single=true&output=csv';
+        const cached = await getProductsCache(url);
+        if (cached && cached.length > 0) {
+          productsList = cached;
+          setAllProducts(cached);
+        } else {
+          const resp = await fetch(url);
+          if (resp.ok) {
+            const txt = await resp.text();
+            productsList = parseProductPerformanceCSV(txt);
+            setAllProducts(productsList);
+            await setProductsCache(url, productsList);
+          }
+        }
+      }
+
+      setExportStep('Menghitung agregasi performa mingguan...');
+      // Filter products for this week
+      const weeklyRawProducts = productsList.filter(p => {
+        if (!p.date) return false;
+        return getMondayOfWeekSafe(p.date) === weekObj.weekKey;
+      });
+
+      // Aggregate products by SKU for this week
+      const skuMap = new Map<string, {
+        sku: string;
+        name: string;
+        brand: string;
+        category: string;
+        unit: string;
+        totalQty: number;
+        totalSales: number;
+      }>();
+
+      weeklyRawProducts.forEach(p => {
+        const key = p.sku.trim();
+        const existing = skuMap.get(key);
+        if (existing) {
+          existing.totalQty += p.qty || 0;
+          existing.totalSales += p.sales || 0;
+          if ((!existing.brand || existing.brand === '-') && p.brand) existing.brand = p.brand;
+          if ((!existing.category || existing.category === 'Lainnya') && p.category) existing.category = p.category;
+        } else {
+          skuMap.set(key, {
+            sku: p.sku,
+            name: p.name,
+            brand: p.brand || '-',
+            category: p.category || 'Lainnya',
+            unit: p.unit || 'pcs',
+            totalQty: p.qty || 0,
+            totalSales: p.sales || 0,
+          });
+        }
+      });
+
+      const aggregatedWeeklyProducts = Array.from(skuMap.values()).sort((a, b) => b.totalSales - a.totalSales);
+      const totalWeeklyProductSales = aggregatedWeeklyProducts.reduce((sum, p) => sum + p.totalSales, 0);
+      const totalWeeklyProductQty = aggregatedWeeklyProducts.reduce((sum, p) => sum + p.totalQty, 0);
+
+      // Category breakdown
+      const catMap = new Map<string, { category: string; skuSet: Set<string>; totalQty: number; totalSales: number }>();
+      aggregatedWeeklyProducts.forEach(p => {
+        const c = p.category || 'Lainnya';
+        if (!catMap.has(c)) {
+          catMap.set(c, { category: c, skuSet: new Set(), totalQty: 0, totalSales: 0 });
+        }
+        const item = catMap.get(c)!;
+        item.skuSet.add(p.sku);
+        item.totalQty += p.totalQty;
+        item.totalSales += p.totalSales;
+      });
+      const categorySummary = Array.from(catMap.values()).sort((a, b) => b.totalSales - a.totalSales);
+
+      // Brand breakdown
+      const brMap = new Map<string, { brand: string; skuSet: Set<string>; totalQty: number; totalSales: number }>();
+      aggregatedWeeklyProducts.forEach(p => {
+        const b = p.brand || 'Tanpa Merk';
+        if (!brMap.has(b)) {
+          brMap.set(b, { brand: b, skuSet: new Set(), totalQty: 0, totalSales: 0 });
+        }
+        const item = brMap.get(b)!;
+        item.skuSet.add(p.sku);
+        item.totalQty += p.totalQty;
+        item.totalSales += p.totalSales;
+      });
+      const brandSummary = Array.from(brMap.values()).sort((a, b) => b.totalSales - a.totalSales);
+
+      setExportStep('Menyusun tata letak PDF terpadu...');
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const fileName = `Laporan_Mingguan_Terpadu_${weekObj.startDate}_sd_${weekObj.endDate}.pdf`;
+
+      // Helper for drawing KPI box
+      const drawKPI = (x: number, y: number, w: number, h: number, title: string, value: string, subtext: string, color: [number, number, number]) => {
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+
+        // Color accent strip on left
+        doc.setFillColor(color[0], color[1], color[2]);
+        doc.rect(x, y + 1.5, 1.2, h - 3, 'F');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(title.toUpperCase(), x + 3.2, y + 4.2);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(color[0], color[1], color[2]);
+        doc.text(value, x + 3.2, y + 9.5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(subtext, x + 3.2, y + 13.5);
+      };
+
+      // ==========================================
+      // PAGE 1: RINGKASAN ANALITIK PENJUALAN
+      // ==========================================
+      // Top header banner
+      doc.setFillColor(79, 70, 229); // Indigo 600
+      doc.rect(14, 12, 182, 18, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(255, 255, 255);
+      doc.text('LAPORAN MINGGUAN TERPADU', 18, 19);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(224, 231, 255);
+      doc.text(`KONSOLIDASI RINGKASAN ANALITIK & ANALISA PRODUK • PERIODE: ${weekObj.label.toUpperCase()}`, 18, 25);
+
+      // Period badge on top right of banner
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(255, 255, 255);
+      const bannerRightText = `${formatRupiah(weekObj.totalSales)}`;
+      doc.text(bannerRightText, 192 - doc.getTextWidth(bannerRightText), 20);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6);
+      doc.setTextColor(224, 231, 255);
+      const txSubtitle = `${formatNumberIndo(weekObj.totalTx)} Transaksi`;
+      doc.text(txSubtitle, 192 - doc.getTextWidth(txSubtitle), 25);
+
+      // Section Title I: Ringkasan Analitik Penjualan
+      let curY = 35;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('I. RINGKASAN ANALITIK PENJUALAN MINGGUAN (DASHBOARD & KPI SALES)', 14, curY);
+
+      curY += 4;
+      const kpiW = 58;
+      const kpiH = 15;
+      const kpiGap = 4;
+
+      // Primary channel calculation
+      const channelEntries = [
+        { name: 'Instan', total: weekObj.totalInstan, tx: weekObj.txInstan },
+        { name: 'Reguler', total: weekObj.totalReguler, tx: weekObj.txReguler },
+        { name: 'Manual', total: weekObj.totalManual, tx: weekObj.txManual },
+      ].sort((a, b) => b.total - a.total);
+      const topChannel = channelEntries[0];
+      const topChannelPct = weekObj.totalSales > 0 ? ((topChannel.total / weekObj.totalSales) * 100).toFixed(0) : '0';
+
+      // Row 1 of KPI
+      drawKPI(14, curY, kpiW, kpiH, 'Total Omzet Mingguan', formatRupiah(weekObj.totalSales), `${weekObj.activeDaysCount} hari kerja tercatat`, [79, 70, 229]);
+      drawKPI(14 + kpiW + kpiGap, curY, kpiW, kpiH, 'Total Transaksi', `${formatNumberIndo(weekObj.totalTx)} Transaksi`, `AOV: ${formatRupiah(weekObj.aov)}`, [15, 23, 42]);
+      drawKPI(14 + 2 * (kpiW + kpiGap), curY, kpiW, kpiH, 'Rata-rata Omzet / Hari', formatRupiah(weekObj.avgDailySales), `Omzet harian terdistribusi`, [16, 185, 129]);
+
+      curY += kpiH + 3;
+
+      // Row 2 of KPI
+      const peakDayText = weekObj.peakDay ? `${weekObj.peakDay.dayOfWeek} (${formatDateIndo(weekObj.peakDay.date).replace(/ \d{4}$/, '')})` : '-';
+      const peakDaySub = weekObj.peakDay ? `${formatRupiah(weekObj.peakDay.totalAll)} (${((weekObj.peakDay.totalAll / (weekObj.totalSales || 1)) * 100).toFixed(0)}% mingguan)` : '-';
+      drawKPI(14, curY, kpiW, kpiH, 'Hari Penjualan Tertinggi', peakDayText, peakDaySub, [244, 63, 94]);
+
+      const lowestDayText = weekObj.lowestDay ? `${weekObj.lowestDay.dayOfWeek} (${formatDateIndo(weekObj.lowestDay.date).replace(/ \d{4}$/, '')})` : '-';
+      const lowestDaySub = weekObj.lowestDay ? `${formatRupiah(weekObj.lowestDay.totalAll)}` : '-';
+      drawKPI(14 + kpiW + kpiGap, curY, kpiW, kpiH, 'Hari Penjualan Terendah', lowestDayText, lowestDaySub, [217, 119, 6]);
+
+      drawKPI(14 + 2 * (kpiW + kpiGap), curY, kpiW, kpiH, 'Saluran Terbesar', `${topChannel.name} (${topChannelPct}%)`, `${formatRupiah(topChannel.total)} (${topChannel.tx} tx)`, [99, 102, 241]);
+
+      curY += kpiH + 5;
+
+      // Sub-section A: Sales Channels Breakdown
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(30, 41, 59);
+      doc.text('A. Kinerja Saluran Penjualan (Sales Channels Performance)', 14, curY);
+      curY += 2.5;
+
+      const channelRows = [
+        [
+          'Pengiriman Instan (Grab/Gojek/Shopee/Sameday)',
+          formatRupiah(weekObj.totalInstan),
+          `${weekObj.totalSales > 0 ? ((weekObj.totalInstan / weekObj.totalSales) * 100).toFixed(1) : '0.0'}%`,
+          `${formatNumberIndo(weekObj.txInstan)} order`,
+          `${weekObj.totalTx > 0 ? ((weekObj.txInstan / weekObj.totalTx) * 100).toFixed(1) : '0.0'}%`,
+          formatRupiah(weekObj.txInstan > 0 ? Math.round(weekObj.totalInstan / weekObj.txInstan) : 0)
+        ],
+        [
+          'Pengiriman Reguler (Ekspedisi JNE/J&T/SiCepat)',
+          formatRupiah(weekObj.totalReguler),
+          `${weekObj.totalSales > 0 ? ((weekObj.totalReguler / weekObj.totalSales) * 100).toFixed(1) : '0.0'}%`,
+          `${formatNumberIndo(weekObj.txReguler)} order`,
+          `${weekObj.totalTx > 0 ? ((weekObj.txReguler / weekObj.totalTx) * 100).toFixed(1) : '0.0'}%`,
+          formatRupiah(weekObj.txReguler > 0 ? Math.round(weekObj.totalReguler / weekObj.txReguler) : 0)
+        ],
+        [
+          'Pesanan Manual / Offline Direct Sales',
+          formatRupiah(weekObj.totalManual),
+          `${weekObj.totalSales > 0 ? ((weekObj.totalManual / weekObj.totalSales) * 100).toFixed(1) : '0.0'}%`,
+          `${formatNumberIndo(weekObj.txManual)} order`,
+          `${weekObj.totalTx > 0 ? ((weekObj.txManual / weekObj.totalTx) * 100).toFixed(1) : '0.0'}%`,
+          formatRupiah(weekObj.txManual > 0 ? Math.round(weekObj.totalManual / weekObj.txManual) : 0)
+        ],
+        [
+          'TOTAL PENJUALAN MINGGUAN',
+          formatRupiah(weekObj.totalSales),
+          '100.0%',
+          `${formatNumberIndo(weekObj.totalTx)} order`,
+          '100.0%',
+          formatRupiah(weekObj.aov)
+        ]
+      ];
+
+      autoTable(doc, {
+        head: [['Kanal Penjualan', 'Omzet Kotor', 'Share Omzet', 'Vol Transaksi', 'Share Tx', 'AOV per Order']],
+        body: channelRows,
+        startY: curY,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: [255, 255, 255],
+          fontSize: 6.8,
+          fontStyle: 'bold',
+          cellPadding: 1.5
+        },
+        columnStyles: {
+          0: { cellWidth: 70, fontStyle: 'bold' },
+          1: { halign: 'right' },
+          2: { halign: 'center' },
+          3: { halign: 'right' },
+          4: { halign: 'center' },
+          5: { halign: 'right', fontStyle: 'bold' }
+        },
+        styles: {
+          fontSize: 6.5,
+          cellPadding: 1.4
+        },
+        didParseCell: function(data) {
+          if (data.section === 'body' && data.row.index === 3) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [241, 245, 249];
+          }
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      curY = (doc as any).lastAutoTable.finalY + 5;
+
+      // Sub-section B: Daily Breakdown
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(30, 41, 59);
+      doc.text('B. Rincian Tren Penjualan Harian (Daily Sales Breakdown)', 14, curY);
+      curY += 2.5;
+
+      // Build daily rows
+      const dailyRows = weekObj.days.map(day => {
+        const ev = events.find(e => e.date === day.date);
+        const dayAov = day.txAll > 0 ? Math.round(day.totalAll / day.txAll) : 0;
+        return [
+          `${day.dayOfWeek}, ${formatDateIndo(day.date).replace(/ \d{4}$/, '')}`,
+          formatRupiah(day.totalInstan),
+          formatRupiah(day.totalReguler),
+          formatRupiah(day.totalManual),
+          formatRupiah(day.totalAll),
+          `${formatNumberIndo(day.txAll)} tx`,
+          formatRupiah(dayAov),
+          ev ? `${ev.title} (${ev.type})` : '-'
+        ];
+      });
+
+      // Total row for daily table
+      dailyRows.push([
+        'TOTAL MINGGUAN',
+        formatRupiah(weekObj.totalInstan),
+        formatRupiah(weekObj.totalReguler),
+        formatRupiah(weekObj.totalManual),
+        formatRupiah(weekObj.totalSales),
+        `${formatNumberIndo(weekObj.totalTx)} tx`,
+        formatRupiah(weekObj.aov),
+        `${weekObj.days.length} Hari Kerja`
+      ]);
+
+      autoTable(doc, {
+        head: [['Hari & Tanggal', 'Omzet Instan', 'Omzet Reguler', 'Omzet Manual', 'Total Omzet', 'Transaksi', 'AOV', 'Event / Catatan']],
+        body: dailyRows,
+        startY: curY,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [30, 41, 59], // Slate 800
+          textColor: [255, 255, 255],
+          fontSize: 6.5,
+          fontStyle: 'bold',
+          cellPadding: 1.5
+        },
+        columnStyles: {
+          0: { cellWidth: 32, fontStyle: 'bold' },
+          1: { halign: 'right' },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'right', fontStyle: 'bold' },
+          5: { halign: 'center' },
+          6: { halign: 'right' },
+          7: { cellWidth: 35, fontSize: 5.5 }
+        },
+        styles: {
+          fontSize: 6.2,
+          cellPadding: 1.3
+        },
+        didParseCell: function(data) {
+          if (data.section === 'body' && data.row.index === dailyRows.length - 1) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [224, 231, 255]; // light indigo
+            data.cell.styles.textColor = [49, 46, 129];
+          }
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      curY = (doc as any).lastAutoTable.finalY + 4;
+
+      // Sub-section C: Evaluasi & Highlight Analitik
+      if (curY < 265) {
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.3);
+        const boxH = Math.min(22, 275 - curY);
+        doc.roundedRect(14, curY, 182, boxH, 2, 2, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.8);
+        doc.setTextColor(79, 70, 229);
+        doc.text('CATATAN & EVALUASI ANALITIK PENJUALAN MINGGUAN:', 18, curY + 4.5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.8);
+        doc.setTextColor(71, 85, 105);
+        const bullet1 = `• Akumulasi pendapatan mencapai ${formatRupiah(weekObj.totalSales)} dengan volume order ${formatNumberIndo(weekObj.totalTx)} transaksi (AOV ${formatRupiah(weekObj.aov)}).`;
+        const bullet2 = `• Puncak omzet terjadi pada hari ${peakDayText} dengan nilai ${peakDaySub}. Kanal ${topChannel.name} berkontribusi paling dominan (${topChannelPct}%).`;
+        const bullet3 = `• Lanjutkan ke Halaman 2 untuk rincian performa produk, kontribusi SKU terlaris, kategori, dan merk.`;
+        doc.text(bullet1, 18, curY + 9);
+        doc.text(bullet2, 18, curY + 13.5);
+        doc.text(bullet3, 18, curY + 18);
+      }
+
+      // ==========================================
+      // PAGE 2: ANALISA PERFORMA PRODUK
+      // ==========================================
+      doc.addPage();
+      curY = 12;
+
+      // Top banner Page 2
+      doc.setFillColor(30, 41, 59); // Slate 800
+      doc.rect(14, curY, 182, 16, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text('II. ANALISA PERFORMA PRODUK MINGGUAN (SKU, MERK & KATEGORI)', 18, curY + 6.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(203, 213, 225);
+      doc.text(`RINCIAN PENJUALAN PRODUK TERLARIS • PERIODE: ${weekObj.label.toUpperCase()}`, 18, curY + 12);
+
+      const topSkuInfo = aggregatedWeeklyProducts[0];
+      const rightProdText = `${formatNumberIndo(totalWeeklyProductQty)} Unit Terjual`;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text(rightProdText, 192 - doc.getTextWidth(rightProdText), curY + 7.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6);
+      doc.setTextColor(203, 213, 225);
+      const skuCountText = `${aggregatedWeeklyProducts.length} SKU Aktif`;
+      doc.text(skuCountText, 192 - doc.getTextWidth(skuCountText), curY + 12);
+
+      curY += 20;
+
+      // 6 Product KPI Boxes (2 rows x 3 columns)
+      const upt = weekObj.totalTx > 0 ? (totalWeeklyProductQty / weekObj.totalTx).toFixed(1) : '0';
+      const topCat = categorySummary[0];
+      const topBrand = brandSummary[0];
+
+      // Row 1 of Product KPIs
+      drawKPI(14, curY, kpiW, kpiH, 'Total Volume Unit Terjual', `${formatNumberIndo(totalWeeklyProductQty)} Unit`, `Rata-rata ${upt} unit / transaksi (UPT)`, [79, 70, 229]);
+      drawKPI(14 + kpiW + kpiGap, curY, kpiW, kpiH, 'Jumlah SKU Terjual', `${formatNumberIndo(aggregatedWeeklyProducts.length)} SKU Aktif`, `${categorySummary.length} kategori • ${brandSummary.length} merk`, [15, 23, 42]);
+      drawKPI(14 + 2 * (kpiW + kpiGap), curY, kpiW, kpiH, 'Total Omzet Produk', formatRupiah(totalWeeklyProductSales), `Omzet teragregasi dari data produk`, [16, 185, 129]);
+
+      curY += kpiH + 3;
+
+      // Row 2 of Product KPIs
+      const topSkuTitle = topSkuInfo ? (topSkuInfo.name.length > 22 ? topSkuInfo.name.substring(0, 22) + '...' : topSkuInfo.name) : '-';
+      const topSkuSub = topSkuInfo ? `${topSkuInfo.totalQty} ${topSkuInfo.unit} (${formatRupiah(topSkuInfo.totalSales)})` : '-';
+      drawKPI(14, curY, kpiW, kpiH, 'SKU Produk Terlaris (#1)', topSkuTitle, topSkuSub, [244, 63, 94]);
+
+      const topCatName = topCat ? topCat.category : '-';
+      const topCatSub = topCat ? `${topCat.skuSet.size} SKU • ${formatRupiah(topCat.totalSales)}` : '-';
+      drawKPI(14 + kpiW + kpiGap, curY, kpiW, kpiH, 'Kategori Teratas', topCatName, topCatSub, [217, 119, 6]);
+
+      const topBrandName = topBrand ? topBrand.brand : '-';
+      const topBrandSub = topBrand ? `${topBrand.skuSet.size} SKU • ${formatRupiah(topBrand.totalSales)}` : '-';
+      drawKPI(14 + 2 * (kpiW + kpiGap), curY, kpiW, kpiH, 'Merk / Brand Teratas', topBrandName, topBrandSub, [99, 102, 241]);
+
+      curY += kpiH + 5;
+
+      // Sub-section A: Top Categories & Brands Summary Tables
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(30, 41, 59);
+      doc.text('A. Kontribusi Penjualan per Kategori & Merk Produk Teratas', 14, curY);
+      curY += 2.5;
+
+      // Build Top 5 Categories and Top 5 Brands rows side by side
+      const halfW = 88;
+      const catRows = categorySummary.slice(0, 5).map((c, idx) => [
+        `#${idx + 1} ${c.category}`,
+        `${c.skuSet.size} SKU`,
+        `${formatNumberIndo(c.totalQty)} unit`,
+        formatRupiah(c.totalSales),
+        `${totalWeeklyProductSales > 0 ? ((c.totalSales / totalWeeklyProductSales) * 100).toFixed(1) : '0'}%`
+      ]);
+
+      const brandRows = brandSummary.slice(0, 5).map((b, idx) => [
+        `#${idx + 1} ${b.brand}`,
+        `${b.skuSet.size} SKU`,
+        `${formatNumberIndo(b.totalQty)} unit`,
+        formatRupiah(b.totalSales),
+        `${totalWeeklyProductSales > 0 ? ((b.totalSales / totalWeeklyProductSales) * 100).toFixed(1) : '0'}%`
+      ]);
+
+      autoTable(doc, {
+        head: [['Top Kategori Produk', 'Jml SKU', 'Qty (Unit)', 'Omzet Penjualan', 'Share %']],
+        body: catRows,
+        startY: curY,
+        theme: 'striped',
+        tableWidth: halfW,
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: [255, 255, 255],
+          fontSize: 6.2,
+          fontStyle: 'bold',
+          cellPadding: 1.2
+        },
+        columnStyles: {
+          0: { cellWidth: 32, fontStyle: 'bold' },
+          1: { halign: 'center' },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'center', fontStyle: 'bold' }
+        },
+        styles: {
+          fontSize: 5.8,
+          cellPadding: 1.2
+        },
+        margin: { left: 14 }
+      });
+
+      const catFinalY = (doc as any).lastAutoTable.finalY;
+
+      autoTable(doc, {
+        head: [['Top Merk / Brand', 'Jml SKU', 'Qty (Unit)', 'Omzet Penjualan', 'Share %']],
+        body: brandRows,
+        startY: curY,
+        theme: 'striped',
+        tableWidth: halfW,
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontSize: 6.2,
+          fontStyle: 'bold',
+          cellPadding: 1.2
+        },
+        columnStyles: {
+          0: { cellWidth: 32, fontStyle: 'bold' },
+          1: { halign: 'center' },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'center', fontStyle: 'bold' }
+        },
+        styles: {
+          fontSize: 5.8,
+          cellPadding: 1.2
+        },
+        margin: { left: 108 }
+      });
+
+      const brandFinalY = (doc as any).lastAutoTable.finalY;
+      curY = Math.max(catFinalY, brandFinalY) + 5;
+
+      // Sub-section B: Top 15 Best Selling SKUs
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(30, 41, 59);
+      doc.text('B. Rincian SKU Produk Terlaris Minggu Ini (Top 15 Selling SKUs)', 14, curY);
+      curY += 2.5;
+
+      if (aggregatedWeeklyProducts.length === 0) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Tidak ada data rincian transaksi produk spesifik untuk minggu ini.', 14, curY + 4);
+        curY += 10;
+      } else {
+        const productHeaders = [['Rank', 'SKU', 'Nama Produk', 'Merk', 'Kategori', 'Unit Terjual', 'Omzet Penjualan', 'Share %', 'Harga Rerata']];
+        const productRows = aggregatedWeeklyProducts.slice(0, 15).map((p, index) => {
+          const unitPrice = p.totalQty > 0 ? Math.round(p.totalSales / p.totalQty) : 0;
+          const share = totalWeeklyProductSales > 0 ? ((p.totalSales / totalWeeklyProductSales) * 100).toFixed(1) : '0';
+          const trimmedName = p.name.length > 34 ? p.name.substring(0, 34) + '...' : p.name;
+          return [
+            `#${index + 1}`,
+            p.sku,
+            trimmedName,
+            p.brand,
+            p.category,
+            `${formatNumberIndo(p.totalQty)} ${p.unit || 'pcs'}`,
+            formatRupiah(p.totalSales),
+            `${share}%`,
+            formatRupiah(unitPrice)
+          ];
+        });
+
+        autoTable(doc, {
+          head: productHeaders,
+          body: productRows,
+          startY: curY,
+          theme: 'striped',
+          headStyles: {
+            fillColor: [79, 70, 229],
+            textColor: [255, 255, 255],
+            fontSize: 6.2,
+            fontStyle: 'bold',
+            cellPadding: 1.3
+          },
+          columnStyles: {
+            0: { cellWidth: 10, halign: 'center' },
+            1: { cellWidth: 18, fontStyle: 'bold' },
+            2: { cellWidth: 50 },
+            3: { cellWidth: 22 },
+            4: { cellWidth: 22 },
+            5: { cellWidth: 18, halign: 'right' },
+            6: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+            7: { cellWidth: 12, halign: 'center' },
+            8: { cellWidth: 20, halign: 'right' }
+          },
+          styles: {
+            fontSize: 5.7,
+            cellPadding: 1.15
+          },
+          margin: { left: 14, right: 14, bottom: 18 }
+        });
+
+        curY = (doc as any).lastAutoTable.finalY + 4;
+      }
+
+      // Sub-section C: Product Insight Callout Box (if space permits)
+      if (curY < 272) {
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.3);
+        const boxH = Math.min(18, 280 - curY);
+        doc.roundedRect(14, curY, 182, boxH, 2, 2, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text('INSIGHT PRODUK & REKOMENDASI STOK MINGGUAN:', 18, curY + 4.2);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.6);
+        doc.setTextColor(71, 85, 105);
+        const top3Skus = aggregatedWeeklyProducts.slice(0, 3).map(p => p.sku).join(', ');
+        const insight1 = `• Kontributor produk terbesar minggu ini dipimpin oleh SKU: ${top3Skus || '-'}. Pastikan ketersediaan stok produk ini terjaga optimal.`;
+        const insight2 = `• Kategori ${topCat ? topCat.category : '-'} dan Brand ${topBrand ? topBrand.brand : '-'} mendominasi perolehan omzet tertinggi selama periode ini.`;
+        doc.text(insight1, 18, curY + 8.5);
+        doc.text(insight2, 18, curY + 13);
+      }
+
+      // ==========================================
+      // RUNNING FOOTERS ON ALL PAGES
+      // ==========================================
+      const totalPages = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.line(14, 284, 196, 284);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Laporan Mingguan Terpadu (Ringkasan Analitik & Analisa Produk) • Periode: ${weekObj.label}`, 14, 288);
+
+        const pageStr = `Halaman ${i} dari ${totalPages}`;
+        doc.text(pageStr, 196 - doc.getTextWidth(pageStr), 288);
+      }
+
+      setExportStep('Mengunduh file PDF terpadu...');
+      doc.save(fileName);
+    } catch (err) {
+      console.error('Gagal membuat laporan mingguan PDF:', err);
+    } finally {
+      setIsExporting(false);
+      setExportStep('');
+    }
+  };
+
   // Start download sequentially for chosen months
   const handleStartDownload = async () => {
     if (selectedMonths.length === 0) return;
@@ -1290,10 +2088,18 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             </div>
             <div>
               <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide leading-none">
-                {reportType === 'monthly' ? 'Unduh Laporan Kinerja Bulanan' : 'Unduh Ringkasan Eksekutif Harian'}
+                {reportType === 'weekly'
+                  ? 'Unduh Laporan Mingguan Terpadu'
+                  : reportType === 'monthly'
+                  ? 'Unduh Laporan Kinerja Bulanan'
+                  : 'Unduh Ringkasan Eksekutif Harian'}
               </h3>
               <p className="text-[10px] text-slate-400 font-bold mt-1">
-                {reportType === 'monthly' ? 'Pilih periode bulan evaluasi untuk diekspor ke PDF' : 'Pilih tanggal harian spesifik untuk diekspor ke PDF'}
+                {reportType === 'weekly'
+                  ? 'Ringkasan Analitik & Analisa Produk lengkap dalam 1 PDF terpadu'
+                  : reportType === 'monthly'
+                  ? 'Pilih periode bulan evaluasi untuk diekspor ke PDF'
+                  : 'Pilih tanggal harian spesifik untuk diekspor ke PDF'}
               </p>
             </div>
           </div>
@@ -1311,6 +2117,16 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
         {/* Tab Switcher */}
         {!isExporting && (
           <div className="flex border-b border-slate-100 bg-slate-50/50 p-1">
+            <button
+              onClick={() => setReportType('weekly')}
+              className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                reportType === 'weekly'
+                  ? 'bg-white text-indigo-600 shadow-sm border border-slate-100'
+                  : 'text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              📈 Mingguan (1 PDF)
+            </button>
             <button
               onClick={() => setReportType('monthly')}
               className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
@@ -1388,7 +2204,101 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
           /* Selection Form View */
           <>
             <div className="p-6 flex-1 overflow-y-auto space-y-4">
-              {reportType === 'monthly' ? (
+              {reportType === 'weekly' ? (
+                <div className="space-y-4">
+                  {/* Info Panel Weekly */}
+                  <div className="bg-indigo-50/80 border border-indigo-100 p-4 rounded-2xl flex gap-3 text-[11px] font-semibold text-indigo-900 leading-normal shadow-sm">
+                    <div className="mt-0.5 shrink-0">
+                      <span className="inline-flex items-center justify-center w-5 h-5 bg-indigo-600 text-white rounded-full font-black text-xs">✓</span>
+                    </div>
+                    <div>
+                      <p className="font-bold text-indigo-950">Laporan Mingguan Terpadu (1 PDF)</p>
+                      <p className="text-[10.5px] text-indigo-700/90 mt-0.5">
+                        Menghasilkan dokumen PDF terpadu yang memadukan <strong>Ringkasan Analitik</strong> (KPI penjualan, kinerja saluran, tren harian) dan <strong>Analisa Produk</strong> (SKU terlaris, kontribusi kategori &amp; merk) untuk periode satu minggu.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Week Selection Dropdown */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                      Pilih Periode Minggu (Senin - Minggu)
+                    </label>
+                    <select
+                      value={selectedWeeklyDate}
+                      onChange={(e) => setSelectedWeeklyDate(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-xs font-bold"
+                    >
+                      {availableWeeks.map(wk => (
+                        <option key={wk.weekKey} value={wk.weekKey}>
+                          {wk.label} — {formatRupiah(wk.totalSales)} ({wk.totalTx} tx)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Detailed Preview Card for Selected Week */}
+                  {selectedWeeklyDate && (() => {
+                    const currentWeek = availableWeeks.find(w => w.weekKey === selectedWeeklyDate) || availableWeeks[0];
+                    if (!currentWeek) return null;
+                    
+                    const weekProductsCount = allProducts.filter(p => p.date && getMondayOfWeekSafe(p.date) === currentWeek.weekKey).length;
+
+                    return (
+                      <div className="border border-slate-200/80 rounded-2xl p-4 bg-slate-50/50 space-y-3.5 shadow-sm">
+                        <div className="flex items-center justify-between border-b border-slate-200/60 pb-2.5">
+                          <div>
+                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">Ringkasan Periode Terpilih</span>
+                            <h4 className="text-xs font-black text-slate-800 mt-0.5">{currentWeek.label}</h4>
+                          </div>
+                          <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-100">
+                            {currentWeek.activeDaysCount} Hari Aktif
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3.5 text-xs">
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] text-slate-400 font-bold block">Total Omzet Mingguan:</span>
+                            <span className="font-mono font-black text-indigo-600 text-sm block">
+                              {formatRupiah(currentWeek.totalSales)}
+                            </span>
+                          </div>
+
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] text-slate-400 font-bold block">Total Transaksi (Orders):</span>
+                            <span className="font-mono font-black text-slate-800 text-sm block">
+                              {formatNumberIndo(currentWeek.totalTx)} Transaksi
+                            </span>
+                          </div>
+
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] text-slate-400 font-bold block">Rata-rata Order (AOV):</span>
+                            <span className="text-slate-700 font-extrabold text-[11px] block">
+                              {formatRupiah(currentWeek.aov)} / pesanan
+                            </span>
+                          </div>
+
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] text-slate-400 font-bold block">Rata-rata Omzet / Hari:</span>
+                            <span className="text-emerald-600 font-extrabold text-[11px] block">
+                              {formatRupiah(currentWeek.avgDailySales)}
+                            </span>
+                          </div>
+
+                          <div className="col-span-2 pt-2 border-t border-slate-200/50 flex items-center justify-between text-[10.5px]">
+                            <span className="text-slate-500 font-semibold">
+                              Data Produk Terkait Minggu Ini:
+                            </span>
+                            <span className="text-indigo-600 font-bold">
+                              {isProductsLoading ? 'Memuat data produk...' : `${weekProductsCount} catatan transaksi produk`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : reportType === 'monthly' ? (
                 <>
                   {/* Quick info panel */}
                   <div className="bg-amber-50 border border-amber-200/40 p-4 rounded-2xl flex gap-3 text-[11px] font-semibold text-amber-800 leading-normal">
@@ -1552,7 +2462,9 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
             {/* Footer buttons */}
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
               <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                {reportType === 'monthly' ? (
+                {reportType === 'weekly' ? (
+                  <>Metrik Mingguan: <strong className="text-indigo-600 font-extrabold">Analitik + Produk (1 PDF)</strong></>
+                ) : reportType === 'monthly' ? (
                   <>Terpilih: <strong className="text-indigo-600 font-extrabold">{selectedMonths.length} Bulan</strong></>
                 ) : (
                   <>Metrik Harian: <strong className="text-indigo-600 font-extrabold">1 Hari Kerja</strong></>
@@ -1570,13 +2482,21 @@ export default function SalesReportModal({ isOpen, onClose, salesData, events }:
                 <button
                   type="button"
                   onClick={() => {
-                    if (reportType === 'monthly') {
+                    if (reportType === 'weekly') {
+                      executeWeeklyPDFDownload(selectedWeeklyDate);
+                    } else if (reportType === 'monthly') {
                       handleStartDownload();
                     } else {
                       executeDailyPDFDownload(selectedDailyDate);
                     }
                   }}
-                  disabled={reportType === 'monthly' ? selectedMonths.length === 0 : !selectedDailyDate || isProductsLoading}
+                  disabled={
+                    reportType === 'weekly'
+                      ? !selectedWeeklyDate || isProductsLoading
+                      : reportType === 'monthly'
+                      ? selectedMonths.length === 0
+                      : !selectedDailyDate || isProductsLoading
+                  }
                   className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 hover:scale-[1.01]"
                 >
                   <Download className="w-4 h-4 text-white" />

@@ -99,7 +99,11 @@ const TrendMiniBarChart = ({ data, dates }: { data: number[], dates: string[] })
   );
 };
 
-export default function SalesProducts() {
+interface SalesProductsProps {
+  onOpenWeeklyReport?: (week?: string) => void;
+}
+
+export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps = {}) {
   const [products, setProducts] = useState<ProductPerformance[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isError, setIsError] = useState<string | null>(null);
@@ -1109,37 +1113,49 @@ export default function SalesProducts() {
     return categoryComparisonOptions.find(c => c.name === selectedCompCategoryB) || null;
   }, [selectedCompCategoryB, categoryComparisonOptions]);
 
-  // Auto select defaults
+  // Auto select defaults and auto-heal invalid/stale selections
   useEffect(() => {
     if (compMode === 'product') {
-      if (!selectedCompProductASku && comparisonProductOptions.length > 0) {
+      const isAValid = comparisonProductOptions.some(p => p.sku === selectedCompProductASku);
+      const isBValid = comparisonProductOptions.some(p => p.sku === selectedCompProductBSku);
+      
+      if (!isAValid && comparisonProductOptions.length > 0) {
         setSelectedCompProductASku(comparisonProductOptions[0].sku);
       }
-      if (!selectedCompProductBSku && comparisonProductOptions.length > 1) {
-        setSelectedCompProductBSku(comparisonProductOptions[1].sku);
-      } else if (!selectedCompProductBSku && comparisonProductOptions.length === 1) {
+      if (!isBValid && comparisonProductOptions.length > 1) {
+        const nextB = comparisonProductOptions.find(p => p.sku !== (isAValid ? selectedCompProductASku : comparisonProductOptions[0].sku)) || comparisonProductOptions[1];
+        setSelectedCompProductBSku(nextB.sku);
+      } else if (!isBValid && comparisonProductOptions.length === 1) {
         setSelectedCompProductBSku(comparisonProductOptions[0].sku);
       }
     } else if (compMode === 'brand') {
-      if (!selectedCompBrandA && brandComparisonOptions.length > 0) {
+      const isAValid = brandComparisonOptions.some(b => b.name === selectedCompBrandA);
+      const isBValid = brandComparisonOptions.some(b => b.name === selectedCompBrandB);
+      
+      if (!isAValid && brandComparisonOptions.length > 0) {
         setSelectedCompBrandA(brandComparisonOptions[0].name);
       }
-      if (!selectedCompBrandB && brandComparisonOptions.length > 1) {
-        setSelectedCompBrandB(brandComparisonOptions[1].name);
-      } else if (!selectedCompBrandB && brandComparisonOptions.length === 1) {
+      if (!isBValid && brandComparisonOptions.length > 1) {
+        const nextB = brandComparisonOptions.find(b => b.name !== (isAValid ? selectedCompBrandA : brandComparisonOptions[0].name)) || brandComparisonOptions[1];
+        setSelectedCompBrandB(nextB.name);
+      } else if (!isBValid && brandComparisonOptions.length === 1) {
         setSelectedCompBrandB(brandComparisonOptions[0].name);
       }
     } else if (compMode === 'category') {
-      if (!selectedCompCategoryA && categoryComparisonOptions.length > 0) {
+      const isAValid = categoryComparisonOptions.some(c => c.name === selectedCompCategoryA);
+      const isBValid = categoryComparisonOptions.some(c => c.name === selectedCompCategoryB);
+      
+      if (!isAValid && categoryComparisonOptions.length > 0) {
         setSelectedCompCategoryA(categoryComparisonOptions[0].name);
       }
-      if (!selectedCompCategoryB && categoryComparisonOptions.length > 1) {
-        setSelectedCompCategoryB(categoryComparisonOptions[1].name);
-      } else if (!selectedCompCategoryB && categoryComparisonOptions.length === 1) {
+      if (!isBValid && categoryComparisonOptions.length > 1) {
+        const nextB = categoryComparisonOptions.find(c => c.name !== (isAValid ? selectedCompCategoryA : categoryComparisonOptions[0].name)) || categoryComparisonOptions[1];
+        setSelectedCompCategoryB(nextB.name);
+      } else if (!isBValid && categoryComparisonOptions.length === 1) {
         setSelectedCompCategoryB(categoryComparisonOptions[0].name);
       }
     }
-  }, [compMode, comparisonProductOptions, brandComparisonOptions, categoryComparisonOptions]);
+  }, [compMode, comparisonProductOptions, brandComparisonOptions, categoryComparisonOptions, selectedCompProductASku, selectedCompProductBSku, selectedCompBrandA, selectedCompBrandB, selectedCompCategoryA, selectedCompCategoryB]);
 
   // Combined daily trend data
   const comparisonChartData = useMemo(() => {
@@ -1227,20 +1243,57 @@ export default function SalesProducts() {
     }
   }, [compComparisonDates, products, compMode, selectedCompProductASku, selectedCompProductBSku, selectedCompBrandA, selectedCompBrandB, selectedCompCategoryA, selectedCompCategoryB]);
 
+  const compLineAName = useMemo(() => {
+    if (compMode === 'product') {
+      if (!selectedCompProductA) return '[A] Produk A';
+      const name = selectedCompProductA.name;
+      return `[A] ${selectedCompProductA.sku} - ${name.length > 20 ? name.substring(0, 20) + '...' : name}`;
+    } else if (compMode === 'brand') {
+      return `[A] Merk: ${selectedCompBrandObjA?.name || selectedCompBrandA || 'Merk A'}`;
+    } else {
+      return `[A] Kategori: ${selectedCompCategoryObjA?.name || selectedCompCategoryA || 'Kategori A'}`;
+    }
+  }, [compMode, selectedCompProductA, selectedCompBrandObjA, selectedCompBrandA, selectedCompCategoryObjA, selectedCompCategoryA]);
+
+  const compLineBName = useMemo(() => {
+    if (compMode === 'product') {
+      if (!selectedCompProductB) return '[B] Produk B';
+      const name = selectedCompProductB.name;
+      return `[B] ${selectedCompProductB.sku} - ${name.length > 20 ? name.substring(0, 20) + '...' : name}`;
+    } else if (compMode === 'brand') {
+      return `[B] Merk: ${selectedCompBrandObjB?.name || selectedCompBrandB || 'Merk B'}`;
+    } else {
+      return `[B] Kategori: ${selectedCompCategoryObjB?.name || selectedCompCategoryB || 'Kategori B'}`;
+    }
+  }, [compMode, selectedCompProductB, selectedCompBrandObjB, selectedCompBrandB, selectedCompCategoryObjB, selectedCompCategoryB]);
+
   const comparisonTooltip = ({ active, payload }: any) => {
-    const valid = compMode === 'product' ? (selectedCompProductA && selectedCompProductB) : compMode === 'brand' ? (selectedCompBrandObjA && selectedCompBrandObjB) : (selectedCompCategoryObjA && selectedCompCategoryObjB);
+    const valid = compMode === 'product' 
+      ? (selectedCompProductA && selectedCompProductB) 
+      : compMode === 'brand' 
+      ? (selectedCompBrandObjA && selectedCompBrandObjB) 
+      : (selectedCompCategoryObjA && selectedCompCategoryObjB);
+
     if (active && payload && payload.length && valid) {
       const data = payload[0].payload;
       const isSales = compMetric === 'sales';
-      const valA = isSales ? data.salesA : data.qtyA;
-      const valB = isSales ? data.salesB : data.qtyB;
-      const labelA = compMode === 'product' ? selectedCompProductA.sku : compMode === 'brand' ? selectedCompBrandA : selectedCompCategoryA;
-      const labelB = compMode === 'product' ? selectedCompProductB.sku : compMode === 'brand' ? selectedCompBrandB : selectedCompCategoryB;
+      const labelA = compMode === 'product' 
+        ? `${selectedCompProductA!.sku} - ${selectedCompProductA!.name.substring(0, 22)}` 
+        : compMode === 'brand' 
+        ? selectedCompBrandA 
+        : selectedCompCategoryA;
+      const labelB = compMode === 'product' 
+        ? `${selectedCompProductB!.sku} - ${selectedCompProductB!.name.substring(0, 22)}` 
+        : compMode === 'brand' 
+        ? selectedCompBrandB 
+        : selectedCompCategoryB;
 
       return (
         <div className="bg-slate-950/95 backdrop-blur-md text-white p-4 rounded-2xl border border-slate-800 shadow-2xl space-y-3 text-xs min-w-[280px]">
           <div className="border-b border-slate-800/80 pb-2">
-            <span className="font-black text-slate-400 uppercase tracking-widest text-[9px] block mb-0.5">⚔️ Perbandingan {compMode === 'product' ? 'Produk' : compMode === 'brand' ? 'Brand' : 'Kategori'}</span>
+            <span className="font-black text-slate-400 uppercase tracking-widest text-[9px] block mb-0.5">
+              ⚔️ Perbandingan {compMode === 'product' ? 'Produk' : compMode === 'brand' ? 'Merk' : 'Kategori'}
+            </span>
             <span className="font-mono text-slate-300 font-bold bg-slate-800 px-2 py-0.5 rounded text-[10px]">
               {data.formattedDate}
             </span>
@@ -1248,21 +1301,21 @@ export default function SalesProducts() {
           
           <div className="space-y-2">
             <div className="flex justify-between items-center gap-4 text-[11px]">
-              <span className="font-bold flex items-center gap-1.5 text-indigo-400">
-                <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                [A] {labelA}:
+              <span className="font-bold flex items-center gap-1.5 text-indigo-400 truncate max-w-[180px]">
+                <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                <span className="truncate">[A] {labelA}</span>:
               </span>
-              <span className="font-mono font-bold text-slate-200">
+              <span className="font-mono font-bold text-slate-200 shrink-0">
                 {isSales ? formatRupiah(data.salesA) : `${formatNumberIndo(data.qtyA)} unit`}
               </span>
             </div>
 
             <div className="flex justify-between items-center gap-4 text-[11px]">
-              <span className="font-bold flex items-center gap-1.5 text-emerald-400">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                [B] {labelB}:
+              <span className="font-bold flex items-center gap-1.5 text-emerald-400 truncate max-w-[180px]">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                <span className="truncate">[B] {labelB}</span>:
               </span>
-              <span className="font-mono font-bold text-slate-200">
+              <span className="font-mono font-bold text-slate-200 shrink-0">
                 {isSales ? formatRupiah(data.salesB) : `${formatNumberIndo(data.qtyB)} unit`}
               </span>
             </div>
@@ -1272,22 +1325,6 @@ export default function SalesProducts() {
     }
     return null;
   };
-
-  // Automatically select top 2 bestselling products as defaults
-  useEffect(() => {
-    if (comparisonProductOptions.length >= 2) {
-      if (!selectedCompProductASku) {
-        setSelectedCompProductASku(comparisonProductOptions[0].sku);
-      }
-      if (!selectedCompProductBSku) {
-        setSelectedCompProductBSku(comparisonProductOptions[1].sku);
-      }
-    } else if (comparisonProductOptions.length === 1) {
-      if (!selectedCompProductASku) {
-        setSelectedCompProductASku(comparisonProductOptions[0].sku);
-      }
-    }
-  }, [comparisonProductOptions, selectedCompProductASku, selectedCompProductBSku]);
 
   // Pagination helper
   const paginatedProducts = useMemo(() => {
@@ -1443,7 +1480,8 @@ export default function SalesProducts() {
       return [
         (i + 1).toString(),
         b.name,
-        `${b.skuCount} SKU (${formatNumberIndo(b.qty)} pcs)`,
+        `${b.skuCount} SKU`,
+        `${formatNumberIndo(b.qty)} unit`,
         formatRupiah(b.revenue),
         `${pct.toFixed(1)}%`
       ];
@@ -1455,7 +1493,8 @@ export default function SalesProducts() {
       return [
         (i + 1).toString(),
         c.name,
-        `${c.skuCount} SKU (${formatNumberIndo(c.qty)} pcs)`,
+        `${c.skuCount} SKU`,
+        `${formatNumberIndo(c.qty)} unit`,
         formatRupiah(c.revenue),
         `${pct.toFixed(1)}%`
       ];
@@ -1466,17 +1505,18 @@ export default function SalesProducts() {
     autoTable(doc, {
       startY: currentY,
       margin: { left: 15, right: 110 },
-      head: [['No', 'Merk / Brand', 'Jml SKU / Qty', 'Total Omzet', 'Kontr.']],
+      head: [['No', 'Merk / Brand', 'Jml SKU', 'Qty Terjual', 'Total Omzet', 'Kontr.']],
       body: brandRows.slice(0, 10), // Show top 10 brands
       theme: 'striped',
-      headStyles: { fillColor: [79, 70, 229], fontSize: 7, fontStyle: 'bold', halign: 'center' }, // Indigo-600
-      bodyStyles: { fontSize: 7 },
+      headStyles: { fillColor: [79, 70, 229], fontSize: 6.5, fontStyle: 'bold', halign: 'center' }, // Indigo-600
+      bodyStyles: { fontSize: 6.5 },
       columnStyles: {
-        0: { cellWidth: 8, halign: 'center' },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 22, halign: 'right' },
-        3: { cellWidth: 22, halign: 'right' },
-        4: { cellWidth: 12, halign: 'right' }
+        0: { cellWidth: 6, halign: 'center' },
+        1: { cellWidth: 24 },
+        2: { cellWidth: 15, halign: 'center' },
+        3: { cellWidth: 15, halign: 'right' },
+        4: { cellWidth: 17, halign: 'right' },
+        5: { cellWidth: 8, halign: 'right' }
       },
       styles: { cellPadding: 1.5 }
     });
@@ -1485,17 +1525,18 @@ export default function SalesProducts() {
     autoTable(doc, {
       startY: currentY,
       margin: { left: 110, right: 15 },
-      head: [['No', 'Kategori', 'Jml SKU / Qty', 'Total Omzet', 'Kontr.']],
+      head: [['No', 'Kategori', 'Jml SKU', 'Qty Terjual', 'Total Omzet', 'Kontr.']],
       body: categoryRows.slice(0, 10), // Show top 10 categories
       theme: 'striped',
-      headStyles: { fillColor: [16, 185, 129], fontSize: 7, fontStyle: 'bold', halign: 'center' }, // Emerald-500
-      bodyStyles: { fontSize: 7 },
+      headStyles: { fillColor: [16, 185, 129], fontSize: 6.5, fontStyle: 'bold', halign: 'center' }, // Emerald-500
+      bodyStyles: { fontSize: 6.5 },
       columnStyles: {
-        0: { cellWidth: 8, halign: 'center' },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 22, halign: 'right' },
-        3: { cellWidth: 22, halign: 'right' },
-        4: { cellWidth: 12, halign: 'right' }
+        0: { cellWidth: 6, halign: 'center' },
+        1: { cellWidth: 24 },
+        2: { cellWidth: 15, halign: 'center' },
+        3: { cellWidth: 15, halign: 'right' },
+        4: { cellWidth: 17, halign: 'right' },
+        5: { cellWidth: 8, halign: 'right' }
       },
       styles: { cellPadding: 1.5 }
     });
@@ -1602,13 +1643,24 @@ export default function SalesProducts() {
         </div>
         
         <div className="flex flex-wrap items-center gap-2.5">
+          {onOpenWeeklyReport && (
+            <button
+              onClick={() => onOpenWeeklyReport(selectedWeek !== 'all' ? selectedWeek : undefined)}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-xs font-bold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] shadow-sm cursor-pointer"
+              title="Unduh laporan gabungan Ringkasan Analitik & Analisa Produk dalam 1 PDF"
+            >
+              <Calendar className="w-3.5 h-3.5 text-indigo-200" />
+              Laporan Mingguan (1 PDF)
+            </button>
+          )}
+
           <button
             onClick={downloadPDFReport}
             disabled={isLoading || !stats}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer shadow-sm disabled:pointer-events-none"
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer shadow-sm disabled:pointer-events-none"
           >
             <Download className="w-3.5 h-3.5" />
-            Unduh Laporan PDF
+            Unduh Analisa Produk PDF
           </button>
 
           <button
@@ -2169,8 +2221,8 @@ export default function SalesProducts() {
                                   <span className="truncate text-slate-800 font-extrabold">{cat.name}</span>
                                 </div>
                                 <div className="flex items-center gap-3 shrink-0 text-right font-mono">
-                                  <span className="text-slate-500 text-[10px] font-bold" title={`${cat.skuCount} SKU, Total ${formatNumberIndo(cat.qty)} pcs`}>
-                                    {cat.skuCount} SKU <span className="text-slate-400 font-normal">({formatNumberIndo(cat.qty)} pcs)</span>
+                                  <span className="text-slate-500 text-[10px] font-bold" title={`${cat.skuCount} SKU terjual, Total ${formatNumberIndo(cat.qty)} unit`}>
+                                    {cat.skuCount} SKU <span className="text-slate-400 font-normal">({formatNumberIndo(cat.qty)} unit)</span>
                                   </span>
                                   <span className="text-indigo-600 font-black">{formatRupiah(cat.revenue)}</span>
                                   <span className="text-[10px] text-indigo-500 font-black min-w-[36px] bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100/30">{pct.toFixed(1)}%</span>
@@ -2309,8 +2361,8 @@ export default function SalesProducts() {
                                     <span className="truncate" title={br.name}>{br.name}</span>
                                   </div>
                                   <div className="flex items-center gap-2.5 shrink-0 text-right font-mono">
-                                    <span className="text-slate-500 text-[10px] font-bold" title={`${br.skuCount} SKU, Total ${formatNumberIndo(br.qty)} pcs`}>
-                                      {br.skuCount} SKU <span className="text-slate-400 font-normal">({formatNumberIndo(br.qty)} pcs)</span>
+                                    <span className="text-slate-500 text-[10px] font-bold" title={`${br.skuCount} SKU terjual, Total ${formatNumberIndo(br.qty)} unit`}>
+                                      {br.skuCount} SKU <span className="text-slate-400 font-normal">({formatNumberIndo(br.qty)} unit)</span>
                                     </span>
                                     <span className="text-slate-600 font-extrabold">{formatRupiah(br.revenue)}</span>
                                     <span className="text-[10px] text-indigo-600 font-black min-w-[32px]">{pct.toFixed(1)}%</span>
@@ -2980,26 +3032,49 @@ export default function SalesProducts() {
                               )}
                             </div>
 
-                            <div className={`grid ${compMode === 'product' ? 'grid-cols-3' : 'grid-cols-2'} gap-3 pt-2 border-t border-indigo-100/40`}>
-                              <div className="bg-white p-3 rounded-xl border border-slate-100">
-                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
-                                <p className="text-xs font-black text-slate-800 mt-1 font-mono">
-                                  {formatNumberIndo(compMode === 'product' ? selectedCompProductA?.totalQty : compMode === 'brand' ? selectedCompBrandObjA?.qty : selectedCompCategoryObjA?.qty)} <span className="text-[9px] text-slate-400 font-normal">{compMode === 'product' ? selectedCompProductA?.unit : 'pcs'}</span>
-                                </p>
-                              </div>
-                              <div className="bg-white p-3 rounded-xl border border-slate-100">
-                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
-                                <p className="text-xs font-black text-indigo-600 mt-1 font-mono truncate">
-                                  {formatRupiah(compMode === 'product' ? selectedCompProductA?.totalSales : compMode === 'brand' ? selectedCompBrandObjA?.revenue : selectedCompCategoryObjA?.revenue)}
-                                </p>
-                              </div>
-                              {compMode === 'product' && selectedCompProductA && (
-                                <div className="bg-white p-3 rounded-xl border border-slate-100">
-                                  <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
-                                  <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
-                                    {formatRupiah(selectedCompProductA.totalQty > 0 ? selectedCompProductA.totalSales / selectedCompProductA.totalQty : 0)}
-                                  </p>
-                                </div>
+                            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-indigo-100/40">
+                              {compMode === 'product' && selectedCompProductA ? (
+                                <>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
+                                    <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                                      {formatNumberIndo(selectedCompProductA.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductA.unit || 'pcs'}</span>
+                                    </p>
+                                  </div>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
+                                    <p className="text-xs font-black text-indigo-600 mt-1 font-mono truncate">
+                                      {formatRupiah(selectedCompProductA.totalSales)}
+                                    </p>
+                                  </div>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
+                                    <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
+                                      {formatRupiah(selectedCompProductA.totalQty > 0 ? selectedCompProductA.totalSales / selectedCompProductA.totalQty : 0)}
+                                    </p>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Jumlah SKU</span>
+                                    <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                                      {compMode === 'brand' ? selectedCompBrandObjA?.skuCount || 0 : selectedCompCategoryObjA?.skuCount || 0} <span className="text-[9px] text-slate-400 font-normal">SKU</span>
+                                    </p>
+                                  </div>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
+                                    <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                                      {formatNumberIndo(compMode === 'brand' ? selectedCompBrandObjA?.qty || 0 : selectedCompCategoryObjA?.qty || 0)} <span className="text-[9px] text-slate-400 font-normal">unit</span>
+                                    </p>
+                                  </div>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
+                                    <p className="text-xs font-black text-indigo-600 mt-1 font-mono truncate">
+                                      {formatRupiah(compMode === 'brand' ? selectedCompBrandObjA?.revenue || 0 : selectedCompCategoryObjA?.revenue || 0)}
+                                    </p>
+                                  </div>
+                                </>
                               )}
                             </div>
 
@@ -3035,26 +3110,49 @@ export default function SalesProducts() {
                               )}
                             </div>
 
-                            <div className={`grid ${compMode === 'product' ? 'grid-cols-3' : 'grid-cols-2'} gap-3 pt-2 border-t border-emerald-100/40`}>
-                              <div className="bg-white p-3 rounded-xl border border-slate-100">
-                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
-                                <p className="text-xs font-black text-slate-800 mt-1 font-mono">
-                                  {formatNumberIndo(compMode === 'product' ? selectedCompProductB?.totalQty : compMode === 'brand' ? selectedCompBrandObjB?.qty : selectedCompCategoryObjB?.qty)} <span className="text-[9px] text-slate-400 font-normal">{compMode === 'product' ? selectedCompProductB?.unit : 'pcs'}</span>
-                                </p>
-                              </div>
-                              <div className="bg-white p-3 rounded-xl border border-slate-100">
-                                <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
-                                <p className="text-xs font-black text-emerald-600 mt-1 font-mono truncate">
-                                  {formatRupiah(compMode === 'product' ? selectedCompProductB?.totalSales : compMode === 'brand' ? selectedCompBrandObjB?.revenue : selectedCompCategoryObjB?.revenue)}
-                                </p>
-                              </div>
-                              {compMode === 'product' && selectedCompProductB && (
-                                <div className="bg-white p-3 rounded-xl border border-slate-100">
-                                  <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
-                                  <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
-                                    {formatRupiah(selectedCompProductB.totalQty > 0 ? selectedCompProductB.totalSales / selectedCompProductB.totalQty : 0)}
-                                  </p>
-                                </div>
+                            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-emerald-100/40">
+                              {compMode === 'product' && selectedCompProductB ? (
+                                <>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
+                                    <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                                      {formatNumberIndo(selectedCompProductB.totalQty)} <span className="text-[9px] text-slate-400 font-normal">{selectedCompProductB.unit || 'pcs'}</span>
+                                    </p>
+                                  </div>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
+                                    <p className="text-xs font-black text-emerald-600 mt-1 font-mono truncate">
+                                      {formatRupiah(selectedCompProductB.totalSales)}
+                                    </p>
+                                  </div>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Harga Rerata</span>
+                                    <p className="text-xs font-black text-slate-700 mt-1 font-mono truncate">
+                                      {formatRupiah(selectedCompProductB.totalQty > 0 ? selectedCompProductB.totalSales / selectedCompProductB.totalQty : 0)}
+                                    </p>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Jumlah SKU</span>
+                                    <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                                      {compMode === 'brand' ? selectedCompBrandObjB?.skuCount || 0 : selectedCompCategoryObjB?.skuCount || 0} <span className="text-[9px] text-slate-400 font-normal">SKU</span>
+                                    </p>
+                                  </div>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Volume Jual</span>
+                                    <p className="text-xs font-black text-slate-800 mt-1 font-mono">
+                                      {formatNumberIndo(compMode === 'brand' ? selectedCompBrandObjB?.qty || 0 : selectedCompCategoryObjB?.qty || 0)} <span className="text-[9px] text-slate-400 font-normal">unit</span>
+                                    </p>
+                                  </div>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Total Omzet</span>
+                                    <p className="text-xs font-black text-emerald-600 mt-1 font-mono truncate">
+                                      {formatRupiah(compMode === 'brand' ? selectedCompBrandObjB?.revenue || 0 : selectedCompCategoryObjB?.revenue || 0)}
+                                    </p>
+                                  </div>
+                                </>
                               )}
                             </div>
 
@@ -3084,7 +3182,10 @@ export default function SalesProducts() {
                             </span>
                           </div>
 
-                          <div className="h-72 w-full pt-1">
+                          <div 
+                            key={`comp-chart-${compMode}-${compMetric}-${selectedCompProductASku}-${selectedCompProductBSku}-${selectedCompBrandA}-${selectedCompBrandB}-${selectedCompCategoryA}-${selectedCompCategoryB}-${compTimeFilterType}-${compSelectedDay}-${compSelectedWeek}-${compSelectedMonth}`}
+                            className="h-72 w-full pt-1"
+                          >
                             {comparisonChartData.length > 0 ? (
                               <ResponsiveContainer width="100%" height="100%">
                                 <LineChart data={comparisonChartData}>
@@ -3094,12 +3195,14 @@ export default function SalesProducts() {
                                     tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'bold' }} 
                                     axisLine={false} 
                                     tickLine={false} 
+                                    interval="preserveStartEnd"
+                                    minTickGap={24}
                                   />
                                   <YAxis 
                                     tick={{ fontSize: 9, fill: '#475569', fontWeight: 'bold' }} 
                                     axisLine={false} 
                                     tickLine={false} 
-                                    tickFormatter={(v) => compMetric === 'sales' ? formatRupiahCompact(v) : formatNumberIndo(v)}
+                                    tickFormatter={(v) => compMetric === 'sales' ? formatRupiahCompact(v) : `${formatNumberIndo(v)} u`}
                                   />
                                   <Tooltip content={comparisonTooltip} />
                                   <Legend 
@@ -3111,7 +3214,7 @@ export default function SalesProducts() {
                                   <Line 
                                     type="monotone" 
                                     dataKey={compMetric === 'qty' ? 'qtyA' : 'salesA'} 
-                                    name={`[A] ${selectedCompProductA.name.substring(0, 20)}...`} 
+                                    name={compLineAName} 
                                     stroke="#6366f1" 
                                     strokeWidth={3}
                                     activeDot={{ r: 6 }} 
@@ -3120,7 +3223,7 @@ export default function SalesProducts() {
                                   <Line 
                                     type="monotone" 
                                     dataKey={compMetric === 'qty' ? 'qtyB' : 'salesB'} 
-                                    name={`[B] ${selectedCompProductB.name.substring(0, 20)}...`} 
+                                    name={compLineBName} 
                                     stroke="#10b981" 
                                     strokeWidth={3}
                                     activeDot={{ r: 6 }} 
@@ -3130,7 +3233,7 @@ export default function SalesProducts() {
                               </ResponsiveContainer>
                             ) : (
                               <div className="h-full flex items-center justify-center text-slate-400 italic text-xs font-bold">
-                                Pilih dua produk di atas untuk memuat grafik tren performa.
+                                Pilih dua {compMode === 'product' ? 'produk' : compMode === 'brand' ? 'merk' : 'kategori'} di atas untuk memuat grafik tren performa.
                               </div>
                             )}
                           </div>
@@ -3138,7 +3241,7 @@ export default function SalesProducts() {
                       </div>
                     ) : (
                       <div className="text-center py-10 bg-slate-50 rounded-2xl border border-slate-100 text-slate-400 font-bold text-xs italic">
-                        Pilih dua produk di atas untuk memulai analisa perbandingan.
+                        Pilih dua {compMode === 'product' ? 'produk' : compMode === 'brand' ? 'merk' : 'kategori'} di atas untuk memulai analisa perbandingan.
                       </div>
                     )}
                   </div>

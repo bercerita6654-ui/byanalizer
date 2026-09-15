@@ -8,7 +8,7 @@ import {
   TrendingUp, BarChart2, DollarSign, Flame, FolderOpen, 
   RefreshCw, AlertCircle, Award, Check, SlidersHorizontal,
   ChevronLeft, ChevronRight, Download, X, Sparkles, TrendingDown, Zap,
-  Pin, Calendar
+  Pin, Calendar, Copy, CheckCheck, Trash2, Layers
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
@@ -299,6 +299,186 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
     });
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }, [products]);
+
+  // Bulk Input SKU & Hitung Harga Tokopedia States
+  const [calcActiveTab, setCalcActiveTab] = useState<'single' | 'bulk-tokopedia'>('single');
+  const [bulkSkuInput, setBulkSkuInput] = useState<string>('');
+  const [bulkTokopediaItems, setBulkTokopediaItems] = useState<Array<{
+    id: string;
+    sku: string;
+    isDuplicate: boolean;
+    duplicateOccurrence: number;
+    name: string;
+    category: string;
+    brand: string;
+    cogs: number;
+    sellingPrice: number;
+    qty: number;
+  }>>([]);
+  const [tokopediaTier, setTokopediaTier] = useState<string>('power-merchant');
+  const [tokopediaAdminFeePct, setTokopediaAdminFeePct] = useState<number>(7.5);
+  const [tokopediaFreeShippingPct, setTokopediaFreeShippingPct] = useState<number>(4.0);
+  const [tokopediaFixedFee, setTokopediaFixedFee] = useState<number>(1000);
+  const [targetNetMarginPct, setTargetNetMarginPct] = useState<number>(25);
+  const [bulkCopySuccess, setBulkCopySuccess] = useState<boolean>(false);
+
+  // Process pasted SKUs into the list
+  // IMPORTANT: Keep duplicates as requested by user ("jika hasil paste ada double SKU tetap ditampilkan saja")
+  const handleProcessBulkPaste = (inputRaw?: string) => {
+    const text = (inputRaw !== undefined ? inputRaw : bulkSkuInput).trim();
+    if (!text) {
+      setBulkTokopediaItems([]);
+      return;
+    }
+
+    const lines = text.split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
+    const skuCounts = new Map<string, number>();
+    lines.forEach(rawSku => {
+      const cleanSku = rawSku.trim();
+      skuCounts.set(cleanSku, (skuCounts.get(cleanSku) || 0) + 1);
+    });
+
+    const occurrenceTracker = new Map<string, number>();
+
+    const parsedItems = lines.map((rawSku, idx) => {
+      const cleanSku = rawSku.trim();
+      const curOccur = (occurrenceTracker.get(cleanSku) || 0) + 1;
+      occurrenceTracker.set(cleanSku, curOccur);
+
+      const totalCount = skuCounts.get(cleanSku) || 1;
+      const isDup = totalCount > 1;
+
+      const matched = products.find(p => p.sku.toLowerCase() === cleanSku.toLowerCase());
+      const name = matched ? matched.name : `SKU Kustom (${cleanSku})`;
+      const category = matched ? matched.category : '-';
+      const brand = matched ? matched.brand : '-';
+
+      const avgPrice = matched && matched.totalQty > 0
+        ? Math.round(matched.totalSales / matched.totalQty)
+        : matched
+        ? matched.totalSales
+        : 150000;
+
+      const savedCogs = matched ? localStorage.getItem(`product_cogs_${matched.sku}`) : null;
+      const cogs = savedCogs ? parseInt(savedCogs, 10) : Math.round(avgPrice * 0.7);
+      const sellingPrice = avgPrice || 150000;
+
+      return {
+        id: `${cleanSku}_${idx}_${Date.now()}`,
+        sku: cleanSku,
+        isDuplicate: isDup,
+        duplicateOccurrence: curOccur,
+        name,
+        category,
+        brand,
+        cogs,
+        sellingPrice,
+        qty: 1
+      };
+    });
+
+    setBulkTokopediaItems(parsedItems);
+  };
+
+  // Helper to load sample SKUs including duplicate SKUs
+  const handleLoadSampleBulkSkus = () => {
+    const sampleProducts = uniqueProductsList.slice(0, 4);
+    if (sampleProducts.length === 0) return;
+    // Deliberately duplicate first and second SKU to showcase that duplicates are kept
+    const sampleList = [
+      sampleProducts[0]?.sku || 'SKU-SAMPLE-1',
+      sampleProducts[1]?.sku || 'SKU-SAMPLE-2',
+      sampleProducts[0]?.sku || 'SKU-SAMPLE-1', // duplicate
+      sampleProducts[2]?.sku || 'SKU-SAMPLE-3',
+      sampleProducts[1]?.sku || 'SKU-SAMPLE-2', // duplicate
+      sampleProducts[3]?.sku || 'SKU-SAMPLE-4'
+    ].filter(Boolean);
+
+    const sampleText = sampleList.join('\n');
+    setBulkSkuInput(sampleText);
+    handleProcessBulkPaste(sampleText);
+  };
+
+  // Update a single item in the bulk table
+  const updateBulkItem = (id: string, field: 'cogs' | 'sellingPrice' | 'qty', value: number) => {
+    setBulkTokopediaItems(prev => prev.map(item => {
+      if (item.id === id) {
+        return { ...item, [field]: value };
+      }
+      return item;
+    }));
+  };
+
+  // Delete a single item
+  const removeBulkItem = (id: string) => {
+    setBulkTokopediaItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  // Apply Tokopedia Recommended Price to all items
+  const applyRecommendedPricesToAll = () => {
+    setBulkTokopediaItems(prev => prev.map(item => {
+      const rec = calculateTokopediaMetrics(item.cogs, item.sellingPrice, item.qty).recommendedSellingPrice;
+      return { ...item, sellingPrice: rec };
+    }));
+  };
+
+  // Tokopedia calculation formula for an item
+  const calculateTokopediaMetrics = (cogs: number, sellingPrice: number, qty: number = 1) => {
+    const subtotal = sellingPrice * qty;
+    const adminFee = Math.round(subtotal * (tokopediaAdminFeePct / 100));
+    const freeShippingFee = Math.min(10000 * qty, Math.round(subtotal * (tokopediaFreeShippingPct / 100)));
+    const fixedFee = tokopediaFixedFee * qty;
+    const totalTokopediaDeduction = adminFee + freeShippingFee + fixedFee;
+    const netPayout = subtotal - totalTokopediaDeduction;
+    const totalCogs = cogs * qty;
+    const netProfit = netPayout - totalCogs;
+    const netMarginPct = subtotal > 0 ? (netProfit / subtotal) * 100 : 0;
+
+    // Recommended Selling Price:
+    // P * (1 - (adminPct + freeShipPct)/100 - targetMargin/100) = cogs + fixedFee
+    const denominator = Math.max(0.05, 1 - (tokopediaAdminFeePct + tokopediaFreeShippingPct + targetNetMarginPct) / 100);
+    const recommendedSellingPrice = Math.round((cogs + tokopediaFixedFee) / denominator);
+
+    return {
+      subtotal,
+      adminFee,
+      freeShippingFee,
+      fixedFee,
+      totalTokopediaDeduction,
+      netPayout,
+      totalCogs,
+      netProfit,
+      netMarginPct,
+      recommendedSellingPrice
+    };
+  };
+
+  // Copy calculated table to clipboard (TSV formatted for Excel / Sheets)
+  const copyBulkResultsToClipboard = () => {
+    if (bulkTokopediaItems.length === 0) return;
+    const headers = ['No', 'SKU', 'Nama Produk', 'Status SKU', 'Harga Modal (COGS)', 'Harga Jual Tokopedia', 'Biaya Tokopedia (Admin+Bebas Ongkir)', 'Net Payout Tokopedia', 'Net Profit Bersih', 'Margin Bersih %', 'Rekomendasi Harga Tokopedia'];
+    const rows = bulkTokopediaItems.map((item, idx) => {
+      const m = calculateTokopediaMetrics(item.cogs, item.sellingPrice, item.qty);
+      return [
+        idx + 1,
+        item.sku,
+        item.name,
+        item.isDuplicate ? `Duplikat (Kemunculan #${item.duplicateOccurrence})` : 'Tunggal',
+        item.cogs,
+        item.sellingPrice,
+        m.totalTokopediaDeduction,
+        m.netPayout,
+        m.netProfit,
+        `${m.netMarginPct.toFixed(1)}%`,
+        m.recommendedSellingPrice
+      ].join('\t');
+    });
+
+    const tsvContent = [headers.join('\t'), ...rows].join('\n');
+    navigator.clipboard.writeText(tsvContent);
+    setBulkCopySuccess(true);
+    setTimeout(() => setBulkCopySuccess(false), 2500);
+  };
 
   // Get all unique days from the dataset
   const availableDays = useMemo(() => {
@@ -3265,35 +3445,78 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
 
           {/* PANEL KALKULATOR MARGIN & PROFIT */}
           <div id="margin-calculator-section" className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-600 rounded-xl">
                   <DollarSign className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Kalkulator Margin &amp; Profit</h3>
-                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">Analisa harga modal (COGS), harga jual, margin keuntungan, dan markup produk secara instan</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">
+                      {calcActiveTab === 'single' ? 'Kalkulator Margin & Profit' : 'Bulk Input SKU & Hitung Harga Tokopedia'}
+                    </h3>
+                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 tracking-wider">
+                      {calcActiveTab === 'single' ? 'Simulasi Satuan' : 'Marketplace Tokopedia'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                    {calcActiveTab === 'single'
+                      ? 'Analisa harga modal (COGS), harga jual, margin keuntungan, dan markup produk secara instan'
+                      : 'Paste daftar SKU massal untuk menghitung margin bersih, skema potongan biaya admin Tokopedia, dan rekomendasi harga jual optimal'}
+                  </p>
                 </div>
               </div>
-              
-              <div className="flex items-center gap-2">
-                <span className="text-[10.5px] font-black text-slate-500 uppercase tracking-wide">Pilih Produk:</span>
-                <select
-                  value={calcProductSku}
-                  onChange={(e) => setCalcProductSku(e.target.value)}
-                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                >
-                  <option value="manual">✍️ Input Manual</option>
-                  {uniqueProductsList.map(p => (
-                    <option key={p.sku} value={p.sku}>
-                      [{p.sku}] {p.name.substring(0, 32)}{p.name.length > 32 ? '...' : ''}
-                    </option>
-                  ))}
-                </select>
+
+              {/* Mode Tabs & Selector */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                  <button
+                    type="button"
+                    onClick={() => setCalcActiveTab('single')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                      calcActiveTab === 'single'
+                        ? 'bg-white text-indigo-700 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    Kalkulator Satuan
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalcActiveTab('bulk-tokopedia')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer ${
+                      calcActiveTab === 'bulk-tokopedia'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    Bulk Input &amp; Tokopedia
+                  </button>
+                </div>
+
+                {calcActiveTab === 'single' && (
+                  <div className="flex items-center gap-2 pl-2">
+                    <span className="text-[10.5px] font-black text-slate-500 uppercase tracking-wide">Pilih Produk:</span>
+                    <select
+                      value={calcProductSku}
+                      onChange={(e) => setCalcProductSku(e.target.value)}
+                      className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="manual">✍️ Input Manual</option>
+                      {uniqueProductsList.map(p => (
+                        <option key={p.sku} value={p.sku}>
+                          [{p.sku}] {p.name.substring(0, 32)}{p.name.length > 32 ? '...' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {calcActiveTab === 'single' ? (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               
               {/* Left Column: Form Inputs & Presets (7 cols on lg) */}
               <div className="lg:col-span-7 space-y-5">
@@ -3577,6 +3800,463 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
               </div>
 
             </div>
+            ) : (
+              /* BULK INPUT SKU & HITUNG HARGA TOKOPEDIA */
+              <div className="space-y-6">
+                
+                {/* Notice regarding duplicate SKUs preservation */}
+                <div className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3">
+                  <div className="p-1.5 bg-amber-100 text-amber-800 rounded-lg shrink-0 mt-0.5">
+                    <AlertCircle className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-1 flex-1">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-xs font-black text-amber-900 uppercase tracking-wider">
+                        Sistem Penanganan SKU Duplikat / Double Aktif
+                      </span>
+                      <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-200/70 text-amber-900">
+                        Double SKU Tetap Ditampilkan
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-800 font-medium leading-relaxed">
+                      Jika hasil paste memiliki <strong>SKU yang sama / double</strong>, seluruh kemunculan SKU tersebut <strong>tetap ditampilkan dan dihitung secara transparan</strong> tanpa dihapus atau di-deduplikasi, menyesuaikan data multi-varian atau multi-entri dari aplikasi Anda.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Top Grid: Paste Textarea & Tokopedia Fee Config */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                  
+                  {/* Paste Box (7 cols) */}
+                  <div className="lg:col-span-7 space-y-3 bg-slate-50/60 p-4 rounded-2xl border border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10.5px] font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5">
+                        <span>Bulk Input SKU (Paste Disini)</span>
+                        <span className="text-slate-400 font-normal text-[10px]">(1 baris per SKU atau pisahkan dengan koma/tab)</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleLoadSampleBulkSkus}
+                        className="text-[10px] font-black text-indigo-600 hover:text-indigo-800 underline uppercase tracking-wider cursor-pointer"
+                      >
+                        Muat Contoh SKU (Ada Duplikat)
+                      </button>
+                    </div>
+
+                    <textarea
+                      rows={5}
+                      value={bulkSkuInput}
+                      onChange={(e) => setBulkSkuInput(e.target.value)}
+                      placeholder={`Contoh tempel daftar SKU:\nSKU-001\nSKU-002\nSKU-001  <-- Double SKU tetap ditampilkan & dihitung\nSKU-003`}
+                      className="w-full p-3.5 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold resize-y"
+                    />
+
+                    <div className="flex items-center justify-between gap-3 pt-1">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleProcessBulkPaste()}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          Proses &amp; Hitung SKU
+                        </button>
+                        {bulkTokopediaItems.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBulkSkuInput('');
+                              setBulkTokopediaItems([]);
+                            }}
+                            className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+
+                      <span className="text-[11px] font-bold text-slate-500">
+                        {bulkTokopediaItems.length > 0 ? (
+                          <>
+                            <strong className="text-indigo-600 font-black">{bulkTokopediaItems.length} Baris</strong> Terdaftar
+                            {bulkTokopediaItems.some(i => i.isDuplicate) && (
+                              <span className="text-amber-600 ml-1 font-black">
+                                ({bulkTokopediaItems.filter(i => i.isDuplicate).length} baris double)
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          'Belum ada SKU diproses'
+                        )}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Tokopedia Fee Settings (5 cols) */}
+                  <div className="lg:col-span-5 bg-slate-50/60 p-4 rounded-2xl border border-slate-200 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-200/70 pb-2">
+                      <div className="flex items-center gap-1.5">
+                        <Tag className="w-4 h-4 text-emerald-600" />
+                        <span className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                          Parameter Biaya Tokopedia
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">
+                        Skema Resmi
+                      </span>
+                    </div>
+
+                    <div className="space-y-3 text-xs">
+                      {/* Merchant Tier Selection */}
+                      <div>
+                        <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">
+                          Status Keanggotaan Seller:
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'regular', label: 'Regular', fee: 6.5 },
+                            { id: 'power-merchant', label: 'PM (7.5%)', fee: 7.5 },
+                            { id: 'power-merchant-pro', label: 'PM PRO', fee: 8.5 }
+                          ].map(tier => (
+                            <button
+                              key={tier.id}
+                              type="button"
+                              onClick={() => {
+                                setTokopediaTier(tier.id);
+                                setTokopediaAdminFeePct(tier.fee);
+                              }}
+                              className={`px-2 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                                tokopediaTier === tier.id
+                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {tier.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Fees Grid */}
+                      <div className="grid grid-cols-2 gap-2.5 pt-1">
+                        <div>
+                          <label className="text-[9.5px] font-black uppercase text-slate-500 block mb-1">
+                            Biaya Admin Tokopedia
+                          </label>
+                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5">
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={tokopediaAdminFeePct}
+                              onChange={(e) => setTokopediaAdminFeePct(parseFloat(e.target.value) || 0)}
+                              className="w-full text-xs font-mono font-bold text-slate-800 focus:outline-none"
+                            />
+                            <span className="text-[11px] font-black text-slate-400">%</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[9.5px] font-black uppercase text-slate-500 block mb-1">
+                            Biaya Bebas Ongkir
+                          </label>
+                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5">
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={tokopediaFreeShippingPct}
+                              onChange={(e) => setTokopediaFreeShippingPct(parseFloat(e.target.value) || 0)}
+                              className="w-full text-xs font-mono font-bold text-slate-800 focus:outline-none"
+                            />
+                            <span className="text-[11px] font-black text-slate-400">%</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[9.5px] font-black uppercase text-slate-500 block mb-1">
+                            Biaya Transaksi / Order
+                          </label>
+                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5">
+                            <span className="text-[10px] font-black text-slate-400">Rp</span>
+                            <input
+                              type="number"
+                              value={tokopediaFixedFee}
+                              onChange={(e) => setTokopediaFixedFee(parseInt(e.target.value, 10) || 0)}
+                              className="w-full text-xs font-mono font-bold text-slate-800 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[9.5px] font-black uppercase text-slate-500 block mb-1">
+                            Target Margin Bersih
+                          </label>
+                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5">
+                            <input
+                              type="number"
+                              value={targetNetMarginPct}
+                              onChange={(e) => setTargetNetMarginPct(parseInt(e.target.value, 10) || 0)}
+                              className="w-full text-xs font-mono font-bold text-indigo-700 focus:outline-none"
+                            />
+                            <span className="text-[11px] font-black text-indigo-500">%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {bulkTokopediaItems.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={applyRecommendedPricesToAll}
+                          className="w-full mt-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Terapkan Rekomendasi ({targetNetMarginPct}%) ke Semua SKU
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Bulk Summary KPIs */}
+                {bulkTokopediaItems.length > 0 && (() => {
+                  let totalOmzet = 0;
+                  let totalCogs = 0;
+                  let totalTokopediaFees = 0;
+                  let totalNetProfit = 0;
+
+                  bulkTokopediaItems.forEach(item => {
+                    const m = calculateTokopediaMetrics(item.cogs, item.sellingPrice, item.qty);
+                    totalOmzet += m.subtotal;
+                    totalCogs += m.totalCogs;
+                    totalTokopediaFees += m.totalTokopediaDeduction;
+                    totalNetProfit += m.netProfit;
+                  });
+
+                  const overallNetMargin = totalOmzet > 0 ? (totalNetProfit / totalOmzet) * 100 : 0;
+                  const uniqueSkuCount = new Set(bulkTokopediaItems.map(i => i.sku)).size;
+                  const duplicateRowCount = bulkTokopediaItems.filter(i => i.isDuplicate).length;
+
+                  return (
+                    <div className="space-y-4">
+                      
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                          <span className="text-[9.5px] font-black uppercase text-slate-400 tracking-wider">Total Baris SKU</span>
+                          <div className="mt-1 flex items-baseline gap-1.5">
+                            <span className="text-base font-black text-slate-800">{bulkTokopediaItems.length} Baris</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                            {uniqueSkuCount} SKU Unik {duplicateRowCount > 0 ? `• ${duplicateRowCount} Baris Double` : ''}
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                          <span className="text-[9.5px] font-black uppercase text-slate-400 tracking-wider">Estimasi Omzet Jual</span>
+                          <div className="mt-1">
+                            <span className="text-base font-black text-indigo-700">{formatRupiah(totalOmzet)}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                            Modal: {formatRupiah(totalCogs)}
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                          <span className="text-[9.5px] font-black uppercase text-slate-400 tracking-wider">Potongan Tokopedia</span>
+                          <div className="mt-1">
+                            <span className="text-base font-black text-rose-600">-{formatRupiah(totalTokopediaFees)}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                            {totalOmzet > 0 ? ((totalTokopediaFees / totalOmzet) * 100).toFixed(1) : '0'}% dari omzet
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                          <span className="text-[9.5px] font-black uppercase text-slate-400 tracking-wider">Laba Bersih Seller</span>
+                          <div className="mt-1 flex items-baseline gap-1.5">
+                            <span className={`text-base font-black ${totalNetProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                              {formatRupiah(totalNetProfit)}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-emerald-700 font-black mt-0.5">
+                            Margin Bersih: {overallNetMargin.toFixed(1)}%
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Detailed Table */}
+                      <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                        <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                              Tabel Hasil Hitung Harga Tokopedia Per SKU
+                            </span>
+                            {duplicateRowCount > 0 && (
+                              <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
+                                Double SKU Tetap Ditampilkan ({duplicateRowCount})
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={copyBulkResultsToClipboard}
+                              className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                            >
+                              {bulkCopySuccess ? (
+                                <>
+                                  <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span className="text-emerald-700 font-extrabold">Tersalin ke Clipboard!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>Salin ke Excel / Sheets</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="overflow-x-auto max-h-[500px]">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead className="bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-wider sticky top-0 z-10 border-b border-slate-200">
+                              <tr>
+                                <th className="py-2.5 px-3 w-10 text-center">#</th>
+                                <th className="py-2.5 px-3 min-w-[130px]">SKU &amp; Status</th>
+                                <th className="py-2.5 px-3 min-w-[180px]">Nama Produk</th>
+                                <th className="py-2.5 px-3 min-w-[120px]">Harga Modal (COGS)</th>
+                                <th className="py-2.5 px-3 min-w-[130px]">Harga Jual Tokopedia</th>
+                                <th className="py-2.5 px-3 min-w-[120px]">Biaya Tokopedia</th>
+                                <th className="py-2.5 px-3 min-w-[120px]">Net Payout</th>
+                                <th className="py-2.5 px-3 min-w-[130px]">Laba &amp; Margin</th>
+                                <th className="py-2.5 px-3 min-w-[150px]">Rekomendasi Harga</th>
+                                <th className="py-2.5 px-2 w-10 text-center">Aksi</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {bulkTokopediaItems.map((item, idx) => {
+                                const m = calculateTokopediaMetrics(item.cogs, item.sellingPrice, item.qty);
+                                return (
+                                  <tr 
+                                    key={item.id} 
+                                    className={`hover:bg-slate-50/80 transition-colors ${
+                                      item.isDuplicate ? 'bg-amber-50/30' : ''
+                                    }`}
+                                  >
+                                    <td className="py-2.5 px-3 text-center text-slate-400 font-mono font-bold text-[11px]">
+                                      {idx + 1}
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <div className="flex flex-col">
+                                        <span className="font-mono font-black text-slate-800 text-xs">{item.sku}</span>
+                                        {item.isDuplicate ? (
+                                          <span className="inline-block mt-0.5 text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200 w-fit">
+                                            Double (#{item.duplicateOccurrence})
+                                          </span>
+                                        ) : (
+                                          <span className="inline-block mt-0.5 text-[9px] font-bold text-slate-400">
+                                            Tunggal
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <span className="font-bold text-slate-700 line-clamp-2" title={item.name}>
+                                        {item.name}
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 focus-within:border-indigo-500">
+                                        <span className="text-[10px] text-slate-400 font-bold">Rp</span>
+                                        <input
+                                          type="number"
+                                          value={item.cogs}
+                                          onChange={(e) => updateBulkItem(item.id, 'cogs', Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                          className="w-full text-xs font-mono font-bold text-slate-700 focus:outline-none"
+                                        />
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 focus-within:border-indigo-500">
+                                        <span className="text-[10px] text-slate-400 font-bold">Rp</span>
+                                        <input
+                                          type="number"
+                                          value={item.sellingPrice}
+                                          onChange={(e) => updateBulkItem(item.id, 'sellingPrice', Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                          className="w-full text-xs font-mono font-bold text-indigo-700 focus:outline-none"
+                                        />
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <div className="flex flex-col">
+                                        <span className="font-mono font-bold text-rose-600 text-xs">
+                                          -{formatRupiah(m.totalTokopediaDeduction)}
+                                        </span>
+                                        <span className="text-[9px] text-slate-400 font-medium">
+                                          Adm: {formatRupiah(m.adminFee)} • BO: {formatRupiah(m.freeShippingFee)}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <span className="font-mono font-bold text-slate-800 text-xs">
+                                        {formatRupiah(m.netPayout)}
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <div className="flex flex-col">
+                                        <span className={`font-mono font-black text-xs ${m.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                          {formatRupiah(m.netProfit)}
+                                        </span>
+                                        <span className={`text-[10px] font-black ${m.netMarginPct >= 20 ? 'text-emerald-600' : m.netMarginPct > 0 ? 'text-amber-600' : 'text-rose-600'}`}>
+                                          Margin: {m.netMarginPct.toFixed(1)}%
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <div className="flex items-center gap-1.5">
+                                        <div className="flex flex-col">
+                                          <span className="font-mono font-black text-indigo-700 text-xs">
+                                            {formatRupiah(m.recommendedSellingPrice)}
+                                          </span>
+                                          <span className="text-[9px] text-slate-400 font-bold">
+                                            Target {targetNetMarginPct}%
+                                          </span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => updateBulkItem(item.id, 'sellingPrice', m.recommendedSellingPrice)}
+                                          className="p-1 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded border border-indigo-200 transition-colors cursor-pointer"
+                                          title="Gunakan harga rekomendasi ini"
+                                        >
+                                          Terapkan
+                                        </button>
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-2 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => removeBulkItem(item.id)}
+                                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                        title="Hapus baris ini"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                    </div>
+                  );
+                })()}
+
+              </div>
+            )}
           </div>
 
           {/* Core Interactive Search & Filter Controls */}

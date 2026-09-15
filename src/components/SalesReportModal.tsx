@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DailySales, MarketingEvent, ProductPerformance } from '../types';
-import { formatRupiah, formatNumberIndo, formatDateIndo, parseProductPerformanceCSV } from '../utils';
+import { formatRupiah, formatNumberIndo, formatDateIndo, parseProductPerformanceCSV, formatRupiahCompact } from '../utils';
 import { getProductsCache, setProductsCache } from '../dbCache';
-import { Download, CheckCircle2, X, Calendar, FileText, Check, TrendingUp, ArrowRight, ArrowUpRight, ArrowDownRight, Layers, SlidersHorizontal } from 'lucide-react';
+import { Download, CheckCircle2, X, Calendar, FileText, Check, TrendingUp, ArrowRight, ArrowUpRight, ArrowDownRight, Layers, SlidersHorizontal, Trophy, Target, Award, CalendarDays, BarChart2 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -214,6 +214,113 @@ export function computePeriodSummary(data: DailySales[], startDate: string, endD
   };
 }
 
+export interface MonthWeekItem {
+  id: number;
+  name: string; // 'Minggu I', 'Minggu II', 'Minggu III', 'Minggu IV'
+  key: 'w1' | 'w2' | 'w3' | 'w4';
+  startDay: number;
+  endDay: number;
+  startDate: string;
+  endDate: string;
+  label: string;
+  shortLabel: string;
+  daysCount: number;
+  summary: PeriodSalesSummary;
+  targetL1: number;
+  targetL2: number;
+  targetL3: number;
+  pctL1: number;
+  pctL2: number;
+  pctL3: number;
+  neededL1: number;
+  neededL2: number;
+  neededL3: number;
+  growthSalesVsPrev: string | null;
+  growthTxVsPrev: string | null;
+  prevWeekLabel: string | null;
+}
+
+export function computeMonthWeeks(salesData: DailySales[], yearMonth: string): MonthWeekItem[] {
+  if (!yearMonth) return [];
+  const [yearStr, monthStr] = yearMonth.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  if (isNaN(year) || isNaN(month)) return [];
+
+  const lastDay = new Date(year, month, 0).getDate();
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  const configs: { id: number; name: string; key: 'w1' | 'w2' | 'w3' | 'w4'; startDay: number; endDay: number }[] = [
+    { id: 1, name: 'Minggu I', key: 'w1', startDay: 1, endDay: 7 },
+    { id: 2, name: 'Minggu II', key: 'w2', startDay: 8, endDay: 14 },
+    { id: 3, name: 'Minggu III', key: 'w3', startDay: 15, endDay: 21 },
+    { id: 4, name: 'Minggu IV', key: 'w4', startDay: 22, endDay: lastDay },
+  ];
+
+  const results: MonthWeekItem[] = [];
+
+  for (let i = 0; i < configs.length; i++) {
+    const cfg = configs[i];
+    const startDate = `${yearMonth}-${pad(cfg.startDay)}`;
+    const endDate = `${yearMonth}-${pad(cfg.endDay)}`;
+    const daysCount = cfg.endDay - cfg.startDay + 1;
+    const summary = computePeriodSummary(salesData, startDate, endDate);
+
+    // Target 150M, 175M, 200M (prorated for W4 if daysCount != 7)
+    const targetMultiplier = daysCount === 7 ? 1 : daysCount / 7;
+    const targetL1 = Math.round(150000000 * targetMultiplier);
+    const targetL2 = Math.round(175000000 * targetMultiplier);
+    const targetL3 = Math.round(200000000 * targetMultiplier);
+
+    const pctL1 = targetL1 > 0 ? (summary.totalSales / targetL1) * 100 : 0;
+    const pctL2 = targetL2 > 0 ? (summary.totalSales / targetL2) * 100 : 0;
+    const pctL3 = targetL3 > 0 ? (summary.totalSales / targetL3) * 100 : 0;
+
+    const neededL1 = Math.max(0, targetL1 - summary.totalSales);
+    const neededL2 = Math.max(0, targetL2 - summary.totalSales);
+    const neededL3 = Math.max(0, targetL3 - summary.totalSales);
+
+    let growthSalesVsPrev: string | null = null;
+    let growthTxVsPrev: string | null = null;
+    let prevWeekLabel: string | null = null;
+
+    if (i > 0) {
+      const prevWeek = results[i - 1];
+      growthSalesVsPrev = formatGrowthPct(summary.totalSales, prevWeek.summary.totalSales);
+      growthTxVsPrev = formatGrowthPct(summary.totalTx, prevWeek.summary.totalTx);
+      prevWeekLabel = prevWeek.name;
+    }
+
+    results.push({
+      id: cfg.id,
+      name: cfg.name,
+      key: cfg.key,
+      startDay: cfg.startDay,
+      endDay: cfg.endDay,
+      startDate,
+      endDate,
+      label: `${cfg.name} (Tgl ${pad(cfg.startDay)} - ${pad(cfg.endDay)})`,
+      shortLabel: `${cfg.name} (${cfg.startDay}-${cfg.endDay})`,
+      daysCount,
+      summary,
+      targetL1,
+      targetL2,
+      targetL3,
+      pctL1,
+      pctL2,
+      pctL3,
+      neededL1,
+      neededL2,
+      neededL3,
+      growthSalesVsPrev,
+      growthTxVsPrev,
+      prevWeekLabel,
+    });
+  }
+
+  return results;
+}
+
 export function computeProductSummaryForPeriod(rawProducts: ProductPerformance[], startDate: string, endDate: string) {
   const periodProducts = rawProducts.filter(p => p.date && p.date >= startDate && p.date <= endDate);
   const skuMap = new Map<string, {
@@ -361,7 +468,9 @@ export default function SalesReportModal({
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>('');
 
   // Weekly / Custom Range tab state
-  const [weeklySelectionMode, setWeeklySelectionMode] = useState<'preset' | 'custom'>('preset');
+  const [weeklySelectionMode, setWeeklySelectionMode] = useState<'monthly-weeks' | 'preset' | 'custom'>('monthly-weeks');
+  const [selectedMonthlyWeekMonth, setSelectedMonthlyWeekMonth] = useState<string>('');
+  const [selectedMonthWeekSubMode, setSelectedMonthWeekSubMode] = useState<'all-4-weeks' | 'w1' | 'w2' | 'w3' | 'w4'>('all-4-weeks');
   const [selectedWeeklyDate, setSelectedWeeklyDate] = useState<string>('');
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -370,6 +479,29 @@ export default function SalesReportModal({
   // Loaded products data state
   const [allProducts, setAllProducts] = useState<ProductPerformance[]>([]);
   const [isProductsLoading, setIsProductsLoading] = useState<boolean>(false);
+
+  // Initialize selected monthly-weeks month from availableMonths
+  useEffect(() => {
+    if (availableMonths.length > 0 && !selectedMonthlyWeekMonth) {
+      setSelectedMonthlyWeekMonth(availableMonths[0].yearMonth);
+    }
+  }, [availableMonths, selectedMonthlyWeekMonth]);
+
+  // Weeks computed for the chosen month (Minggu I: 1-7, Minggu II: 8-14, Minggu III: 15-21, Minggu IV: 22-30/31)
+  const currentMonthWeeks = useMemo(() => {
+    const ym = selectedMonthlyWeekMonth || (availableMonths[0]?.yearMonth || '2026-09');
+    return computeMonthWeeks(salesData, ym);
+  }, [salesData, selectedMonthlyWeekMonth, availableMonths]);
+
+  const currentMonthTotalSummary = useMemo(() => {
+    const ym = selectedMonthlyWeekMonth || (availableMonths[0]?.yearMonth || '2026-09');
+    const [yearStr, monthStr] = ym.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const lastDay = new Date(year, month, 0).getDate();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return computePeriodSummary(salesData, `${ym}-01`, `${ym}-${pad(lastDay)}`);
+  }, [salesData, selectedMonthlyWeekMonth, availableMonths]);
 
   // Available single dates
   const availableDates = useMemo(() => {
@@ -425,7 +557,31 @@ export default function SalesReportModal({
 
   // Active range based on current mode
   const activeRange = useMemo(() => {
-    if (weeklySelectionMode === 'preset') {
+    if (weeklySelectionMode === 'monthly-weeks') {
+      const ym = selectedMonthlyWeekMonth || (availableMonths[0]?.yearMonth || '2026-09');
+      const [yearStr, monthStr] = ym.split('-');
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      const lastDay = new Date(year, month, 0).getDate();
+      const pad = (n: number) => String(n).padStart(2, '0');
+
+      if (selectedMonthWeekSubMode === 'all-4-weeks') {
+        return {
+          startDate: `${ym}-01`,
+          endDate: `${ym}-${pad(lastDay)}`,
+          isPreset: true,
+          label: `Komparasi 4 Minggu (W1 - W4) • ${formatMonthLabel(ym)}`
+        };
+      } else {
+        const wkObj = currentMonthWeeks.find(w => w.key === selectedMonthWeekSubMode) || currentMonthWeeks[0];
+        return {
+          startDate: wkObj ? wkObj.startDate : `${ym}-01`,
+          endDate: wkObj ? wkObj.endDate : `${ym}-07`,
+          isPreset: true,
+          label: wkObj ? `${wkObj.label} • ${formatMonthLabel(ym)}` : `${formatMonthLabel(ym)}`
+        };
+      }
+    } else if (weeklySelectionMode === 'preset') {
       const wk = availableWeeks.find(w => w.weekKey === selectedWeeklyDate) || availableWeeks[0];
       return {
         startDate: wk ? wk.startDate : '2026-09-01',
@@ -445,7 +601,7 @@ export default function SalesReportModal({
         label: `${formatDateIndo(realStart)} s/d ${formatDateIndo(realEnd)}`
       };
     }
-  }, [weeklySelectionMode, selectedWeeklyDate, customStartDate, customEndDate, availableWeeks]);
+  }, [weeklySelectionMode, selectedMonthlyWeekMonth, selectedMonthWeekSubMode, currentMonthWeeks, selectedWeeklyDate, customStartDate, customEndDate, availableWeeks, availableMonths]);
 
   // Comparison periods (Current vs M-1 vs M-2)
   const comparisonPeriods = useMemo(() => {
@@ -1805,6 +1961,25 @@ export default function SalesReportModal({
 
       curY += kpiH + 4.5;
 
+      // Target calculations for the period (Standard weekly: 150M Level 1, 175M Level 2, 200M Level 3)
+      const periodDurationDays = Math.max(1, Math.round((new Date(realEnd).getTime() - new Date(realStart).getTime()) / (1000 * 60 * 60 * 24)) + 1);
+      const targetMultiplier = periodDurationDays === 7 ? 1 : periodDurationDays / 7;
+      const targetL1 = Math.round(150000000 * targetMultiplier);
+      const targetL2 = Math.round(175000000 * targetMultiplier);
+      const targetL3 = Math.round(200000000 * targetMultiplier);
+
+      const pctL1_curr = (currSummary.totalSales / targetL1) * 100;
+      const pctL2_curr = (currSummary.totalSales / targetL2) * 100;
+      const pctL3_curr = (currSummary.totalSales / targetL3) * 100;
+
+      const pctL1_m1 = (m1Summary.totalSales / targetL1) * 100;
+      const pctL2_m1 = (m1Summary.totalSales / targetL2) * 100;
+      const pctL3_m1 = (m1Summary.totalSales / targetL3) * 100;
+
+      const pctL1_m2 = (m2Summary.totalSales / targetL1) * 100;
+      const pctL2_m2 = (m2Summary.totalSales / targetL2) * 100;
+      const pctL3_m2 = (m2Summary.totalSales / targetL3) * 100;
+
       // Sub-section A: Matriks Perbandingan Multi-Bulan (M vs M-1 vs M-2)
       if (compareMoM) {
         doc.setFont('helvetica', 'bold');
@@ -1877,6 +2052,30 @@ export default function SalesReportModal({
             `${currSummary.activeDaysCount} hari`,
             `${currSummary.activeDaysCount - m1Summary.activeDaysCount >= 0 ? '+' : ''}${currSummary.activeDaysCount - m1Summary.activeDaysCount} hari`,
             `${currSummary.activeDaysCount - m2Summary.activeDaysCount >= 0 ? '+' : ''}${currSummary.activeDaysCount - m2Summary.activeDaysCount} hari`,
+          ],
+          [
+            `Pencapaian Target Level 1 (${formatRupiahCompact(targetL1)})`,
+            `${pctL1_m2.toFixed(1)}%`,
+            `${pctL1_m1.toFixed(1)}%`,
+            `${pctL1_curr.toFixed(1)}%`,
+            `${pctL1_curr - pctL1_m1 >= 0 ? '+' : ''}${(pctL1_curr - pctL1_m1).toFixed(1)}% pts`,
+            currSummary.totalSales >= targetL1 ? `Tercapai (+${formatRupiahCompact(currSummary.totalSales - targetL1)})` : `Butuh ${formatRupiahCompact(targetL1 - currSummary.totalSales)} lagi`,
+          ],
+          [
+            `Pencapaian Target Level 2 (${formatRupiahCompact(targetL2)})`,
+            `${pctL2_m2.toFixed(1)}%`,
+            `${pctL2_m1.toFixed(1)}%`,
+            `${pctL2_curr.toFixed(1)}%`,
+            `${pctL2_curr - pctL2_m1 >= 0 ? '+' : ''}${(pctL2_curr - pctL2_m1).toFixed(1)}% pts`,
+            currSummary.totalSales >= targetL2 ? `Tercapai (+${formatRupiahCompact(currSummary.totalSales - targetL2)})` : `Butuh ${formatRupiahCompact(targetL2 - currSummary.totalSales)} lagi`,
+          ],
+          [
+            `Pencapaian Target Level 3 (${formatRupiahCompact(targetL3)})`,
+            `${pctL3_m2.toFixed(1)}%`,
+            `${pctL3_m1.toFixed(1)}%`,
+            `${pctL3_curr.toFixed(1)}%`,
+            `${pctL3_curr - pctL3_m1 >= 0 ? '+' : ''}${(pctL3_curr - pctL3_m1).toFixed(1)}% pts`,
+            currSummary.totalSales >= targetL3 ? `Tercapai (+${formatRupiahCompact(currSummary.totalSales - targetL3)})` : `Butuh ${formatRupiahCompact(targetL3 - currSummary.totalSales)} lagi`,
           ]
         ];
 
@@ -1887,7 +2086,7 @@ export default function SalesReportModal({
             formatRangeWithTag(m1Start, m1End, 'M-1'),
             formatRangeWithTag(realStart, realEnd, 'M'),
             'Pertumbuhan vs M-1',
-            'Pertumbuhan vs M-2'
+            'Status / Kebutuhan Target'
           ]],
           body: comparisonRows,
           startY: curY,
@@ -1902,11 +2101,11 @@ export default function SalesReportModal({
           },
           columnStyles: {
             0: { cellWidth: 52, fontStyle: 'bold' },
-            1: { halign: 'right', cellWidth: 26 },
-            2: { halign: 'right', cellWidth: 26 },
-            3: { halign: 'right', cellWidth: 26, fontStyle: 'bold' },
-            4: { halign: 'center', cellWidth: 26 },
-            5: { halign: 'center', cellWidth: 26 },
+            1: { halign: 'right', cellWidth: 25 },
+            2: { halign: 'right', cellWidth: 25 },
+            3: { halign: 'right', cellWidth: 25, fontStyle: 'bold' },
+            4: { halign: 'center', cellWidth: 25 },
+            5: { halign: 'center', cellWidth: 30 },
           },
           styles: {
             fontSize: 5.8,
@@ -1918,8 +2117,30 @@ export default function SalesReportModal({
               data.cell.styles.fontStyle = 'bold';
               data.cell.styles.fillColor = [241, 245, 249];
             }
+            // Target Level rows highlight (rows 8, 9, 10)
+            if (data.section === 'body' && data.row.index >= 8) {
+              if (data.column.index === 0) {
+                data.cell.styles.fontStyle = 'bold';
+                data.cell.styles.textColor = [67, 56, 202]; // Indigo 700
+              }
+              if (data.column.index === 3) {
+                data.cell.styles.fontStyle = 'bold';
+                data.cell.styles.fillColor = [248, 250, 252];
+              }
+              if (data.column.index === 5) {
+                data.cell.styles.fontStyle = 'bold';
+                const cellVal = String(data.cell.raw || '');
+                if (cellVal.includes('Tercapai')) {
+                  data.cell.styles.textColor = [22, 101, 52];
+                  data.cell.styles.fillColor = [240, 253, 244];
+                } else if (cellVal.includes('Butuh')) {
+                  data.cell.styles.textColor = [190, 18, 60];
+                  data.cell.styles.fillColor = [255, 241, 242];
+                }
+              }
+            }
             // Growth columns text coloring
-            if (data.section === 'body' && (data.column.index === 4 || data.column.index === 5)) {
+            if (data.section === 'body' && data.column.index === 4) {
               const val = String(data.cell.raw || '');
               if (val.startsWith('+')) {
                 data.cell.styles.textColor = [22, 101, 52]; // Dark green
@@ -1933,7 +2154,183 @@ export default function SalesReportModal({
           margin: { left: 14, right: 14 }
         });
 
-        curY = (doc as any).lastAutoTable.finalY + 4;
+        curY = (doc as any).lastAutoTable.finalY + 3;
+
+        // Card Evaluasi Target Level 1, 2, 3 di bawah tabel matriks perbandingan
+        const targetCardW = 58;
+        const targetCardH = 15;
+        const targetCardGap = 4;
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.8);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`HASIL PENJUALAN MINGGUAN: ${formatRupiah(currSummary.totalSales)} • BUTUH BERAPA LAGI AGAR BISA MENCAPAI TARGET:`, 14, curY + 1.5);
+        curY += 3;
+
+        const targetCards = [
+          {
+            lvl: 'TARGET LEVEL 1 (BRONZE)',
+            targetVal: targetL1,
+            pct: pctL1_curr,
+            color: [217, 119, 6] as [number, number, number],
+            achieved: pctL1_curr >= 100,
+            needed: Math.max(0, targetL1 - currSummary.totalSales),
+            surplus: Math.max(0, currSummary.totalSales - targetL1)
+          },
+          {
+            lvl: 'TARGET LEVEL 2 (SILVER)',
+            targetVal: targetL2,
+            pct: pctL2_curr,
+            color: [100, 116, 139] as [number, number, number],
+            achieved: pctL2_curr >= 100,
+            needed: Math.max(0, targetL2 - currSummary.totalSales),
+            surplus: Math.max(0, currSummary.totalSales - targetL2)
+          },
+          {
+            lvl: 'TARGET LEVEL 3 (GOLD)',
+            targetVal: targetL3,
+            pct: pctL3_curr,
+            color: [79, 70, 229] as [number, number, number],
+            achieved: pctL3_curr >= 100,
+            needed: Math.max(0, targetL3 - currSummary.totalSales),
+            surplus: Math.max(0, currSummary.totalSales - targetL3)
+          }
+        ];
+
+        targetCards.forEach((tc, idx) => {
+          const cardX = 14 + idx * (targetCardW + targetCardGap);
+          doc.setFillColor(tc.achieved ? 240 : 255, tc.achieved ? 253 : 241, tc.achieved ? 244 : 242);
+          doc.setDrawColor(tc.achieved ? 187 : 254, tc.achieved ? 247 : 205, tc.achieved ? 208 : 211);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(cardX, curY, targetCardW, targetCardH, 1.8, 1.8, 'FD');
+
+          // Left indicator strip
+          doc.setFillColor(tc.color[0], tc.color[1], tc.color[2]);
+          doc.rect(cardX, curY + 1.2, 1.2, targetCardH - 2.4, 'F');
+
+          // Level Title
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(5.8);
+          doc.setTextColor(30, 41, 59);
+          doc.text(tc.lvl, cardX + 3.2, curY + 3.5);
+
+          // Target value & %
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(5.2);
+          doc.setTextColor(100, 116, 139);
+          doc.text(`Target: ${formatRupiah(tc.targetVal)} • Tercapai: ${tc.pct.toFixed(1)}%`, cardX + 3.2, curY + 6.8);
+
+          // "BUTUH BERAPA LAGI" / "TARGET TERCAPAI"
+          if (!tc.achieved) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.8);
+            doc.setTextColor(225, 29, 72); // Rose 600
+            doc.text(`BUTUH ${formatRupiah(tc.needed)} LAGI`, cardX + 3.2, curY + 10.6);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(5);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`agar bisa mencapai target ${tc.lvl.includes('LEVEL 1') ? 'Level 1' : tc.lvl.includes('LEVEL 2') ? 'Level 2' : 'Level 3'}`, cardX + 3.2, curY + 13.6);
+          } else {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.8);
+            doc.setTextColor(22, 101, 52); // Green 800
+            doc.text(`TARGET TERCAPAI ✓`, cardX + 3.2, curY + 10.6);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(5);
+            doc.setTextColor(22, 101, 52);
+            doc.text(`Surplus +${formatRupiah(tc.surplus)} (${tc.pct.toFixed(1)}% tercapai)`, cardX + 3.2, curY + 13.6);
+          }
+        });
+
+        curY += targetCardH + 3.5;
+      } else {
+        // Fallback target cards if compareMoM is false
+        const targetCardW = 58;
+        const targetCardH = 15;
+        const targetCardGap = 4;
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.8);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`HASIL PENJUALAN MINGGUAN: ${formatRupiah(currSummary.totalSales)} • BUTUH BERAPA LAGI AGAR BISA MENCAPAI TARGET:`, 14, curY + 1.5);
+        curY += 3;
+
+        const targetCards = [
+          {
+            lvl: 'TARGET LEVEL 1 (BRONZE)',
+            targetVal: targetL1,
+            pct: pctL1_curr,
+            color: [217, 119, 6] as [number, number, number],
+            achieved: pctL1_curr >= 100,
+            needed: Math.max(0, targetL1 - currSummary.totalSales),
+            surplus: Math.max(0, currSummary.totalSales - targetL1)
+          },
+          {
+            lvl: 'TARGET LEVEL 2 (SILVER)',
+            targetVal: targetL2,
+            pct: pctL2_curr,
+            color: [100, 116, 139] as [number, number, number],
+            achieved: pctL2_curr >= 100,
+            needed: Math.max(0, targetL2 - currSummary.totalSales),
+            surplus: Math.max(0, currSummary.totalSales - targetL2)
+          },
+          {
+            lvl: 'TARGET LEVEL 3 (GOLD)',
+            targetVal: targetL3,
+            pct: pctL3_curr,
+            color: [79, 70, 229] as [number, number, number],
+            achieved: pctL3_curr >= 100,
+            needed: Math.max(0, targetL3 - currSummary.totalSales),
+            surplus: Math.max(0, currSummary.totalSales - targetL3)
+          }
+        ];
+
+        targetCards.forEach((tc, idx) => {
+          const cardX = 14 + idx * (targetCardW + targetCardGap);
+          doc.setFillColor(tc.achieved ? 240 : 255, tc.achieved ? 253 : 241, tc.achieved ? 244 : 242);
+          doc.setDrawColor(tc.achieved ? 187 : 254, tc.achieved ? 247 : 205, tc.achieved ? 208 : 211);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(cardX, curY, targetCardW, targetCardH, 1.8, 1.8, 'FD');
+
+          doc.setFillColor(tc.color[0], tc.color[1], tc.color[2]);
+          doc.rect(cardX, curY + 1.2, 1.2, targetCardH - 2.4, 'F');
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(5.8);
+          doc.setTextColor(30, 41, 59);
+          doc.text(tc.lvl, cardX + 3.2, curY + 3.5);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(5.2);
+          doc.setTextColor(100, 116, 139);
+          doc.text(`Target: ${formatRupiah(tc.targetVal)} • Tercapai: ${tc.pct.toFixed(1)}%`, cardX + 3.2, curY + 6.8);
+
+          if (!tc.achieved) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.8);
+            doc.setTextColor(225, 29, 72);
+            doc.text(`BUTUH ${formatRupiah(tc.needed)} LAGI`, cardX + 3.2, curY + 10.6);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(5);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`agar bisa mencapai target ${tc.lvl.includes('LEVEL 1') ? 'Level 1' : tc.lvl.includes('LEVEL 2') ? 'Level 2' : 'Level 3'}`, cardX + 3.2, curY + 13.6);
+          } else {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.8);
+            doc.setTextColor(22, 101, 52);
+            doc.text(`TARGET TERCAPAI ✓`, cardX + 3.2, curY + 10.6);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(5);
+            doc.setTextColor(22, 101, 52);
+            doc.text(`Surplus +${formatRupiah(tc.surplus)} (${tc.pct.toFixed(1)}% tercapai)`, cardX + 3.2, curY + 13.6);
+          }
+        });
+
+        curY += targetCardH + 3.5;
       }
 
       // Sub-section B: Daily Breakdown
@@ -2014,7 +2411,7 @@ export default function SalesReportModal({
         doc.setFillColor(248, 250, 252);
         doc.setDrawColor(203, 213, 225);
         doc.setLineWidth(0.3);
-        const boxH = Math.min(18, 280 - curY);
+        const boxH = Math.min(21, 280 - curY);
         doc.roundedRect(14, curY, 182, boxH, 2, 2, 'FD');
 
         doc.setFont('helvetica', 'bold');
@@ -2030,14 +2427,17 @@ export default function SalesReportModal({
         const mom2SalesPct = formatGrowthPct(currSummary.totalSales, m2Summary.totalSales);
         const peakDayText = currSummary.peakDay ? `${currSummary.peakDay.dayOfWeek} (${formatDateIndo(currSummary.peakDay.date).replace(/ \d{4}$/, '')}) - ${formatRupiah(currSummary.peakDay.totalAll)}` : '-';
         
+        const targetBullet = `• Kebutuhan Target: Level 1 (${currSummary.totalSales >= targetL1 ? 'Tercapai' : `Butuh ${formatRupiah(targetL1 - currSummary.totalSales)} lagi`}), Level 2 (${currSummary.totalSales >= targetL2 ? 'Tercapai' : `Butuh ${formatRupiah(targetL2 - currSummary.totalSales)} lagi`}), Level 3 (${currSummary.totalSales >= targetL3 ? 'Tercapai' : `Butuh ${formatRupiah(targetL3 - currSummary.totalSales)} lagi`}).`;
+
         const bullet1 = `• Akumulasi pendapatan mencapai ${formatRupiah(currSummary.totalSales)} dengan volume order ${formatNumberIndo(currSummary.totalTx)} transaksi (AOV ${formatRupiah(currSummary.aov)}).`;
         const bullet2 = compareMoM
           ? `• Pertumbuhan omzet tercatat ${momSalesPct} dibandingkan periode yang sama 1 bulan lalu (M-1) dan ${mom2SalesPct} dibandingkan 2 bulan lalu (M-2).`
           : `• Penjualan tertinggi terjadi pada ${peakDayText}. Kanal ${topChannel.name} berkontribusi paling dominan (${topChannelPct}%).`;
         const bullet3 = `• Lanjutkan ke Halaman 2 untuk rincian performa produk, kontribusi SKU terlaris, kategori, dan merk.`;
-        doc.text(bullet1, 18, curY + 8);
-        doc.text(bullet2, 18, curY + 12);
-        doc.text(bullet3, 18, curY + 16);
+        doc.text(bullet1, 18, curY + 7.5);
+        doc.text(targetBullet, 18, curY + 11.5);
+        doc.text(bullet2, 18, curY + 15.5);
+        doc.text(bullet3, 18, curY + 19.5);
       }
 
       // ==========================================
@@ -2330,6 +2730,577 @@ export default function SalesReportModal({
     await executePeriodPDFDownload(weekObj.startDate, weekObj.endDate, true);
   };
 
+  // Dedicated 4-Weeks Side-by-Side Comparison PDF Download
+  const executeFourWeeksPDFDownload = async (yearMonth: string) => {
+    setIsExporting(true);
+    setExportStep(`Mempersiapkan data komparasi 4 minggu ${formatMonthLabel(yearMonth)}...`);
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    try {
+      // Ensure product list is loaded for Page 2
+      let productsList = allProducts;
+      if (productsList.length === 0) {
+        setExportStep('Memuat rincian produk SKU dari database...');
+        const url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=68677243&single=true&output=csv';
+        try {
+          const cached = await getProductsCache(url);
+          if (cached && cached.length > 0) {
+            productsList = cached;
+            setAllProducts(cached);
+          } else {
+            const response = await fetch(url);
+            if (response.ok) {
+              const text = await response.text();
+              const parsed = parseProductPerformanceCSV(text);
+              productsList = parsed;
+              setAllProducts(parsed);
+              await setProductsCache(url, parsed);
+            }
+          }
+        } catch (err) {
+          console.error('Gagal memuat produk untuk laporan 4 minggu:', err);
+        }
+      }
+
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const [yearStr, monthStr] = yearMonth.split('-');
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      const lastDay = new Date(year, month, 0).getDate();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const monthLabel = formatMonthLabel(yearMonth);
+
+      // Compute weeks
+      const weeksConfig = [
+        { id: 1, name: 'Minggu I', startDay: 1, endDay: 7, start: `${yearMonth}-01`, end: `${yearMonth}-07`, label: 'Minggu I (01-07)', daysCount: 7 },
+        { id: 2, name: 'Minggu II', startDay: 8, endDay: 14, start: `${yearMonth}-08`, end: `${yearMonth}-14`, label: 'Minggu II (08-14)', daysCount: 7 },
+        { id: 3, name: 'Minggu III', startDay: 15, endDay: 21, start: `${yearMonth}-15`, end: `${yearMonth}-21`, label: 'Minggu III (15-21)', daysCount: 7 },
+        { id: 4, name: 'Minggu IV', startDay: 22, endDay: lastDay, start: `${yearMonth}-22`, end: `${yearMonth}-${pad(lastDay)}`, label: `Minggu IV (22-${pad(lastDay)})`, daysCount: lastDay - 22 + 1 },
+      ];
+
+      const weeks = weeksConfig.map((wc) => {
+        const summary = computePeriodSummary(salesData, wc.start, wc.end);
+        const targetMult = wc.daysCount === 7 ? 1 : wc.daysCount / 7;
+        const targetL1 = Math.round(150000000 * targetMult);
+        const targetL2 = Math.round(175000000 * targetMult);
+        const targetL3 = Math.round(200000000 * targetMult);
+        const pctL1 = targetL1 > 0 ? (summary.totalSales / targetL1) * 100 : 0;
+        const pctL2 = targetL2 > 0 ? (summary.totalSales / targetL2) * 100 : 0;
+        const pctL3 = targetL3 > 0 ? (summary.totalSales / targetL3) * 100 : 0;
+
+        return {
+          ...wc,
+          summary,
+          targetL1,
+          targetL2,
+          targetL3,
+          pctL1,
+          pctL2,
+          pctL3,
+          neededL1: Math.max(0, targetL1 - summary.totalSales),
+          neededL2: Math.max(0, targetL2 - summary.totalSales),
+          neededL3: Math.max(0, targetL3 - summary.totalSales),
+        };
+      });
+
+      const monthSummary = computePeriodSummary(salesData, `${yearMonth}-01`, `${yearMonth}-${pad(lastDay)}`);
+      const totalMonthSales = monthSummary.totalSales || 1;
+
+      // PAGE 1: HEADER & KPI CARDS & 4-WEEKS TABLE
+      setExportStep(`Menyusun Halaman 1: Matriks Komparasi 4 Minggu ${monthLabel}...`);
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Header banner
+      doc.setFillColor(79, 70, 229); // Indigo 600
+      doc.rect(14, 12, 182, 18, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(255, 255, 255);
+      doc.text('LAPORAN PENJUALAN MINGGUAN', 18, 19);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.8);
+      doc.setTextColor(224, 231, 255);
+      doc.text(`KOMPARASI MINGGU I (1-7), MINGGU II (8-14), MINGGU III (15-21), MINGGU IV (22-${lastDay}) • BULAN ${monthLabel.toUpperCase()}`, 18, 25);
+
+      const bannerRightText = `${formatRupiah(monthSummary.totalSales)}`;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text(bannerRightText, 192 - doc.getTextWidth(bannerRightText), 20);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6);
+      doc.setTextColor(224, 231, 255);
+      const txSub = `Total Bulan: ${formatNumberIndo(monthSummary.totalTx)} Transaksi • AOV ${formatRupiah(monthSummary.aov)}`;
+      doc.text(txSub, 192 - doc.getTextWidth(txSub), 25);
+
+      // 4 KPI CARDS
+      let curY = 34;
+      const cardW = 43;
+      const cardH = 18;
+      const cardGap = 3.3;
+
+      const colors: [number, number, number][] = [
+        [79, 70, 229],  // Indigo
+        [14, 165, 233], // Sky
+        [245, 158, 11], // Amber
+        [16, 185, 129]  // Emerald
+      ];
+
+      weeks.forEach((w, idx) => {
+        const x = 14 + idx * (cardW + cardGap);
+        const c = colors[idx];
+
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(x, curY, cardW, cardH, 2, 2, 'FD');
+
+        // Color accent strip on left
+        doc.setFillColor(c[0], c[1], c[2]);
+        doc.rect(x, curY + 1.2, 1.2, cardH - 2.4, 'F');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(100, 116, 139);
+        doc.text(w.label.toUpperCase(), x + 3.2, curY + 4.2);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.2);
+        doc.setTextColor(c[0], c[1], c[2]);
+        doc.text(formatRupiah(w.summary.totalSales), x + 3.2, curY + 9.5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.3);
+        doc.setTextColor(71, 85, 105);
+        doc.text(`${formatNumberIndo(w.summary.totalTx)} Order • AOV ${formatRupiah(w.summary.aov)}`, x + 3.2, curY + 13.5);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(5.1);
+        const share = ((w.summary.totalSales / totalMonthSales) * 100).toFixed(1);
+        let compText = `Kontribusi: ${share}%`;
+        if (idx > 0) {
+          const prevW = weeks[idx - 1];
+          const growth = formatGrowthPct(w.summary.totalSales, prevW.summary.totalSales);
+          compText = `vs W${idx}: ${growth} • Kontribusi ${share}%`;
+        }
+        doc.setTextColor(100, 116, 139);
+        doc.text(compText, x + 3.2, curY + 16.5);
+      });
+
+      curY += cardH + 4;
+
+      // SECTION I: MATRIKS KOMPARASI
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('I. MATRIKS KOMPARASI KINERJA 4 MINGGU (SIDE-BY-SIDE EVALUATION)', 14, curY);
+
+      curY += 2.5;
+
+      const w1 = weeks[0];
+      const w2 = weeks[1];
+      const w3 = weeks[2];
+      const w4 = weeks[3];
+
+      const matrixRows = [
+        [
+          'Total Omzet Penjualan',
+          formatRupiah(w1.summary.totalSales),
+          formatRupiah(w2.summary.totalSales),
+          formatRupiah(w3.summary.totalSales),
+          formatRupiah(w4.summary.totalSales),
+          formatRupiah(monthSummary.totalSales)
+        ],
+        [
+          'Pertumbuhan Omzet (vs W Sebelumnya)',
+          '-',
+          formatGrowthPct(w2.summary.totalSales, w1.summary.totalSales),
+          formatGrowthPct(w3.summary.totalSales, w2.summary.totalSales),
+          formatGrowthPct(w4.summary.totalSales, w3.summary.totalSales),
+          '-'
+        ],
+        [
+          'Total Transaksi (Orders)',
+          `${formatNumberIndo(w1.summary.totalTx)} order`,
+          `${formatNumberIndo(w2.summary.totalTx)} order`,
+          `${formatNumberIndo(w3.summary.totalTx)} order`,
+          `${formatNumberIndo(w4.summary.totalTx)} order`,
+          `${formatNumberIndo(monthSummary.totalTx)} order`
+        ],
+        [
+          'Pertumbuhan Order (vs W Sebelumnya)',
+          '-',
+          formatGrowthPct(w2.summary.totalTx, w1.summary.totalTx),
+          formatGrowthPct(w3.summary.totalTx, w2.summary.totalTx),
+          formatGrowthPct(w4.summary.totalTx, w3.summary.totalTx),
+          '-'
+        ],
+        [
+          'Rata-rata Nilai Order (AOV)',
+          formatRupiah(w1.summary.aov),
+          formatRupiah(w2.summary.aov),
+          formatRupiah(w3.summary.aov),
+          formatRupiah(w4.summary.aov),
+          formatRupiah(monthSummary.aov)
+        ],
+        [
+          'Penjualan Instan',
+          formatRupiah(w1.summary.totalInstan),
+          formatRupiah(w2.summary.totalInstan),
+          formatRupiah(w3.summary.totalInstan),
+          formatRupiah(w4.summary.totalInstan),
+          formatRupiah(monthSummary.totalInstan)
+        ],
+        [
+          'Penjualan Reguler',
+          formatRupiah(w1.summary.totalReguler),
+          formatRupiah(w2.summary.totalReguler),
+          formatRupiah(w3.summary.totalReguler),
+          formatRupiah(w4.summary.totalReguler),
+          formatRupiah(monthSummary.totalReguler)
+        ],
+        [
+          'Penjualan Manual',
+          formatRupiah(w1.summary.totalManual),
+          formatRupiah(w2.summary.totalManual),
+          formatRupiah(w3.summary.totalManual),
+          formatRupiah(w4.summary.totalManual),
+          formatRupiah(monthSummary.totalManual)
+        ],
+        [
+          'Rata-rata Omzet / Hari Kerja',
+          formatRupiah(w1.summary.avgDailySales),
+          formatRupiah(w2.summary.avgDailySales),
+          formatRupiah(w3.summary.avgDailySales),
+          formatRupiah(w4.summary.avgDailySales),
+          formatRupiah(monthSummary.avgDailySales)
+        ],
+        [
+          'Jumlah Hari Kerja Aktif',
+          `${w1.summary.activeDaysCount} hari`,
+          `${w2.summary.activeDaysCount} hari`,
+          `${w3.summary.activeDaysCount} hari`,
+          `${w4.summary.activeDaysCount} hari`,
+          `${monthSummary.activeDaysCount} hari`
+        ],
+        [
+          'Target Level 1 (150M) & Status',
+          w1.summary.totalSales >= w1.targetL1 ? `Tercapai (${w1.pctL1.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w1.neededL1)} lagi`,
+          w2.summary.totalSales >= w2.targetL1 ? `Tercapai (${w2.pctL1.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w2.neededL1)} lagi`,
+          w3.summary.totalSales >= w3.targetL1 ? `Tercapai (${w3.pctL1.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w3.neededL1)} lagi`,
+          w4.summary.totalSales >= w4.targetL1 ? `Tercapai (${w4.pctL1.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w4.neededL1)} lagi`,
+          monthSummary.totalSales >= 600000000 ? `Tercapai (${((monthSummary.totalSales / 600000000) * 100).toFixed(1)}%)` : `Butuh ${formatRupiahCompact(600000000 - monthSummary.totalSales)} lagi`
+        ],
+        [
+          'Target Level 2 (175M) & Status',
+          w1.summary.totalSales >= w1.targetL2 ? `Tercapai (${w1.pctL2.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w1.neededL2)} lagi`,
+          w2.summary.totalSales >= w2.targetL2 ? `Tercapai (${w2.pctL2.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w2.neededL2)} lagi`,
+          w3.summary.totalSales >= w3.targetL2 ? `Tercapai (${w3.pctL2.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w3.neededL2)} lagi`,
+          w4.summary.totalSales >= w4.targetL2 ? `Tercapai (${w4.pctL2.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w4.neededL2)} lagi`,
+          monthSummary.totalSales >= 700000000 ? `Tercapai (${((monthSummary.totalSales / 700000000) * 100).toFixed(1)}%)` : `Butuh ${formatRupiahCompact(700000000 - monthSummary.totalSales)} lagi`
+        ],
+        [
+          'Target Level 3 (200M) & Status',
+          w1.summary.totalSales >= w1.targetL3 ? `Tercapai (${w1.pctL3.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w1.neededL3)} lagi`,
+          w2.summary.totalSales >= w2.targetL3 ? `Tercapai (${w2.pctL3.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w2.neededL3)} lagi`,
+          w3.summary.totalSales >= w3.targetL3 ? `Tercapai (${w3.pctL3.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w3.neededL3)} lagi`,
+          w4.summary.totalSales >= w4.targetL3 ? `Tercapai (${w4.pctL3.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w4.neededL3)} lagi`,
+          monthSummary.totalSales >= 800000000 ? `Tercapai (${((monthSummary.totalSales / 800000000) * 100).toFixed(1)}%)` : `Butuh ${formatRupiahCompact(800000000 - monthSummary.totalSales)} lagi`
+        ]
+      ];
+
+      autoTable(doc, {
+        head: [[
+          'Metrik Kinerja Penjualan',
+          'Minggu I (01-07)',
+          'Minggu II (08-14)',
+          'Minggu III (15-21)',
+          `Minggu IV (22-${lastDay})`,
+          `Total Bulan (${monthLabel})`
+        ]],
+        body: matrixRows,
+        startY: curY,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: [255, 255, 255],
+          fontSize: 5.8,
+          fontStyle: 'bold',
+          halign: 'center',
+          cellPadding: 1.2
+        },
+        columnStyles: {
+          0: { cellWidth: 47, fontStyle: 'bold' },
+          1: { halign: 'right', cellWidth: 26 },
+          2: { halign: 'right', cellWidth: 26 },
+          3: { halign: 'right', cellWidth: 26 },
+          4: { halign: 'right', cellWidth: 27 },
+          5: { halign: 'right', cellWidth: 30, fontStyle: 'bold' }
+        },
+        styles: {
+          fontSize: 5.6,
+          cellPadding: 1.05
+        },
+        didParseCell: function(data) {
+          if (data.section === 'body') {
+            // Row 0: Total Omzet
+            if (data.row.index === 0) {
+              data.cell.styles.fontStyle = 'bold';
+              data.cell.styles.fillColor = [238, 242, 255];
+              data.cell.styles.textColor = [49, 46, 129];
+            }
+            // Row 1 & 3: Pertumbuhan
+            if (data.row.index === 1 || data.row.index === 3) {
+              const val = String(data.cell.raw || '');
+              if (val.startsWith('+')) {
+                data.cell.styles.textColor = [22, 101, 52];
+                data.cell.styles.fontStyle = 'bold';
+              } else if (val.startsWith('-')) {
+                data.cell.styles.textColor = [185, 28, 28];
+                data.cell.styles.fontStyle = 'bold';
+              }
+            }
+            // Target rows: 10, 11, 12
+            if (data.row.index >= 10) {
+              const val = String(data.cell.raw || '');
+              if (val.startsWith('Tercapai')) {
+                data.cell.styles.textColor = [22, 101, 52];
+                data.cell.styles.fontStyle = 'bold';
+              } else if (val.startsWith('Butuh')) {
+                data.cell.styles.textColor = [180, 83, 9];
+              }
+            }
+          }
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      curY = (doc as any).lastAutoTable.finalY + 3.5;
+
+      // Evaluasi Box at bottom of Page 1
+      if (curY < 270) {
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.3);
+        const boxH = Math.min(22, 282 - curY);
+        doc.roundedRect(14, curY, 182, boxH, 2, 2, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text('EVALUASI TARGET & ANALISIS TREN ANTAR MINGGU:', 18, curY + 4.2);
+
+        const sortedWeeksBySales = [...weeks].sort((a, b) => b.summary.totalSales - a.summary.totalSales);
+        const peakWeek = sortedWeeksBySales[0];
+        const lowestWeek = sortedWeeksBySales[sortedWeeksBySales.length - 1];
+
+        const l1Count = weeks.filter(w => w.summary.totalSales >= w.targetL1).length;
+        const l2Count = weeks.filter(w => w.summary.totalSales >= w.targetL2).length;
+        const l3Count = weeks.filter(w => w.summary.totalSales >= w.targetL3).length;
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.5);
+        doc.setTextColor(51, 65, 85);
+        const line1 = `• Minggu Puncak (Peak Week): ${peakWeek.name} (${peakWeek.label}) dengan omzet ${formatRupiah(peakWeek.summary.totalSales)} (${((peakWeek.summary.totalSales / totalMonthSales) * 100).toFixed(1)}% dari total bulan).`;
+        const line2 = `• Minggu Terendah: ${lowestWeek.name} dengan omzet ${formatRupiah(lowestWeek.summary.totalSales)} (${((lowestWeek.summary.totalSales / totalMonthSales) * 100).toFixed(1)}% dari total bulan).`;
+        const line3 = `• Pencapaian Target Mingguan: ${l1Count}/4 minggu mencapai Level 1 (150M), ${l2Count}/4 minggu mencapai Level 2 (175M), dan ${l3Count}/4 minggu mencapai Level 3 (200M).`;
+        doc.text(line1, 18, curY + 8.5);
+        doc.text(line2, 18, curY + 12.8);
+        doc.text(line3, 18, curY + 17.1);
+      }
+
+      // PAGE 2: PRODUK & SKU BREAKDOWN
+      setExportStep(`Menyusun Halaman 2: Rincian Produk & SKU 4 Minggu...`);
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      doc.addPage();
+
+      // Top Header Page 2
+      doc.setFillColor(30, 41, 59); // Slate 800
+      doc.rect(14, 12, 182, 12, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`II. KONTRIBUSI PRODUK, KATEGORI & TOP SKU BULAN ${monthLabel.toUpperCase()}`, 18, 19.5);
+
+      curY = 28;
+
+      const monthProd = computeProductSummaryForPeriod(productsList, `${yearMonth}-01`, `${yearMonth}-${pad(lastDay)}`);
+
+      // Category and Brand Tables side-by-side
+      const catRows = monthProd.categorySummary.slice(0, 5).map(c => [
+        c.category,
+        `${formatNumberIndo(c.totalQty)} unit`,
+        formatRupiah(c.totalSales),
+        `${monthProd.totalSales > 0 ? ((c.totalSales / monthProd.totalSales) * 100).toFixed(1) : 0}%`
+      ]);
+
+      const brandRows = monthProd.brandSummary.slice(0, 5).map(b => [
+        b.brand,
+        `${formatNumberIndo(b.totalQty)} unit`,
+        formatRupiah(b.totalSales),
+        `${monthProd.totalSales > 0 ? ((b.totalSales / monthProd.totalSales) * 100).toFixed(1) : 0}%`
+      ]);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text('A. Top Kategori Terlaris (Top 5 Categories)', 14, curY);
+      doc.text('B. Top Brand Terlaris (Top 5 Brands)', 107, curY);
+      curY += 2;
+
+      autoTable(doc, {
+        head: [['Kategori', 'Qty', 'Omzet', 'Share %']],
+        body: catRows.length > 0 ? catRows : [['Tidak ada data', '-', '-', '-']],
+        startY: curY,
+        tableWidth: 89,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: [255, 255, 255],
+          fontSize: 5.8,
+          fontStyle: 'bold',
+          cellPadding: 1.1
+        },
+        columnStyles: {
+          0: { cellWidth: 35, fontStyle: 'bold' },
+          1: { cellWidth: 16, halign: 'center' },
+          2: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+          3: { cellWidth: 14, halign: 'center' },
+        },
+        styles: { fontSize: 5.5, cellPadding: 1 },
+        margin: { left: 14 }
+      });
+
+      const catFinalY = (doc as any).lastAutoTable.finalY;
+
+      autoTable(doc, {
+        head: [['Brand / Merk', 'Qty', 'Omzet', 'Share %']],
+        body: brandRows.length > 0 ? brandRows : [['Tidak ada data', '-', '-', '-']],
+        startY: curY,
+        tableWidth: 89,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontSize: 5.8,
+          fontStyle: 'bold',
+          cellPadding: 1.1
+        },
+        columnStyles: {
+          0: { cellWidth: 35, fontStyle: 'bold' },
+          1: { cellWidth: 16, halign: 'center' },
+          2: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+          3: { cellWidth: 14, halign: 'center' },
+        },
+        styles: { fontSize: 5.5, cellPadding: 1 },
+        margin: { left: 107 }
+      });
+
+      const brandFinalY = (doc as any).lastAutoTable.finalY;
+      curY = Math.max(catFinalY, brandFinalY) + 4.5;
+
+      // Top 15 Best Selling SKUs
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.8);
+      doc.setTextColor(30, 41, 59);
+      doc.text(`C. Rincian SKU Terlaris Selama 4 Minggu (Top 15 Selling SKUs - ${monthLabel})`, 14, curY);
+      curY += 2.2;
+
+      if (monthProd.aggregated.length === 0) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(6.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Tidak ada data rincian transaksi produk spesifik untuk periode 4 minggu ini.', 14, curY + 3);
+        curY += 8;
+      } else {
+        const productHeaders = [['Rank', 'SKU', 'Nama Produk', 'Merk', 'Kategori', 'Unit Terjual', 'Omzet Penjualan', 'Share %', 'Harga Rerata']];
+        const productRows = monthProd.aggregated.slice(0, 15).map((p, index) => {
+          const unitPrice = p.totalQty > 0 ? Math.round(p.totalSales / p.totalQty) : 0;
+          const share = monthProd.totalSales > 0 ? ((p.totalSales / monthProd.totalSales) * 100).toFixed(1) : '0';
+          const trimmedName = p.name.length > 34 ? `${p.name.substring(0, 34)}...` : p.name;
+          return [
+            `#${index + 1}`,
+            p.sku,
+            trimmedName,
+            p.brand.length > 14 ? `${p.brand.substring(0, 14)}...` : p.brand,
+            p.category.length > 14 ? `${p.category.substring(0, 14)}...` : p.category,
+            `${formatNumberIndo(p.totalQty)} pcs`,
+            formatRupiah(p.totalSales),
+            `${share}%`,
+            formatRupiah(unitPrice)
+          ];
+        });
+
+        autoTable(doc, {
+          head: productHeaders,
+          body: productRows,
+          startY: curY,
+          theme: 'striped',
+          headStyles: {
+            fillColor: [79, 70, 229],
+            textColor: [255, 255, 255],
+            fontSize: 5.8,
+            fontStyle: 'bold',
+            cellPadding: 1.1
+          },
+          columnStyles: {
+            0: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+            1: { cellWidth: 20, fontStyle: 'bold' },
+            2: { cellWidth: 49 },
+            3: { cellWidth: 22 },
+            4: { cellWidth: 22 },
+            5: { cellWidth: 18, halign: 'right' },
+            6: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+            7: { cellWidth: 13, halign: 'center' },
+            8: { cellWidth: 20, halign: 'right' }
+          },
+          styles: {
+            fontSize: 5.5,
+            cellPadding: 1.05
+          },
+          margin: { left: 14, right: 14, bottom: 18 }
+        });
+
+        curY = (doc as any).lastAutoTable.finalY + 3.5;
+      }
+
+      // Running footers on all pages
+      const totalPages = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.line(14, 284, 196, 284);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.2);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Laporan Penjualan Mingguan (Komparasi 4 Minggu: W1, W2, W3, W4) • Bulan: ${monthLabel}`, 14, 288);
+
+        const pageStr = `Halaman ${i} dari ${totalPages}`;
+        doc.text(pageStr, 196 - doc.getTextWidth(pageStr), 288);
+      }
+
+      setExportStep('Mengunduh file PDF komparasi 4 minggu...');
+      doc.save(`Laporan_Komparasi_4_Minggu_${yearMonth}.pdf`);
+    } catch (err) {
+      console.error('Gagal membuat laporan komparasi 4 minggu PDF:', err);
+    } finally {
+      setIsExporting(false);
+      setExportStep('');
+    }
+  };
+
   // Start download sequentially for chosen months
   const handleStartDownload = async () => {
     if (selectedMonths.length === 0) return;
@@ -2367,7 +3338,7 @@ export default function SalesReportModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fade-in font-sans">
-      <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[85vh] relative animate-in zoom-in-95 duration-200">
+      <div className={`w-full ${reportType === 'weekly' ? 'max-w-2xl sm:max-w-3xl' : 'max-w-lg'} bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[88vh] relative animate-in zoom-in-95 duration-200`}>
         
         {/* Header */}
         <div className="px-6 py-5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
@@ -2508,37 +3479,386 @@ export default function SalesReportModal({
                     </div>
                   </div>
 
-                  {/* Mode Selector: Preset Minggu vs Rentang Kustom */}
-                  <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/70">
+                  {/* Mode Selector: 4 Minggu Bulanan vs Minggu Kalender vs Rentang Kustom */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/70">
+                    <button
+                      type="button"
+                      onClick={() => setWeeklySelectionMode('monthly-weeks')}
+                      className={`py-2 px-3 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1.5 ${
+                        weeklySelectionMode === 'monthly-weeks'
+                          ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/60'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <CalendarDays className="w-3.5 h-3.5" />
+                      Minggu Bulanan (1-7, 8-14...)
+                    </button>
                     <button
                       type="button"
                       onClick={() => setWeeklySelectionMode('preset')}
-                      className={`flex-1 py-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-2 ${
+                      className={`py-2 px-3 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1.5 ${
                         weeklySelectionMode === 'preset'
-                          ? 'bg-white text-indigo-600 shadow-sm'
+                          ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/60'
                           : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
                       <Calendar className="w-3.5 h-3.5" />
-                      Minggu Kalender (Senin - Minggu)
+                      Minggu Kalender (Senin - Min)
                     </button>
                     <button
                       type="button"
                       onClick={() => setWeeklySelectionMode('custom')}
-                      className={`flex-1 py-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-2 ${
+                      className={`py-2 px-3 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1.5 ${
                         weeklySelectionMode === 'custom'
-                          ? 'bg-white text-indigo-600 shadow-sm'
+                          ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/60'
                           : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
                       <SlidersHorizontal className="w-3.5 h-3.5" />
-                      Filter Rentang Tanggal Kustom
+                      Rentang Tanggal Kustom
                     </button>
                   </div>
 
-                  {/* Input Based on Selected Mode */}
-                  {weeklySelectionMode === 'preset' ? (
-                    /* Week Selection Dropdown */
+                  {/* 1. MONTHLY-WEEKS MODE */}
+                  {weeklySelectionMode === 'monthly-weeks' && (
+                    <div className="space-y-4">
+                      {/* Month Selector and Sub-Mode Pills */}
+                      <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-3.5 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                              Pilih Bulan Acuan Komparasi:
+                            </label>
+                            <span className="text-[10.5px] font-bold text-slate-600">
+                              Membandingkan 4 minggu: W1 (1-7), W2 (8-14), W3 (15-21), W4 (22-akhir)
+                            </span>
+                          </div>
+
+                          <select
+                            value={selectedMonthlyWeekMonth}
+                            onChange={(e) => setSelectedMonthlyWeekMonth(e.target.value)}
+                            className="px-3.5 py-2 bg-white border border-slate-200 text-slate-800 rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-2xs"
+                          >
+                            {availableMonths.map(m => (
+                              <option key={m.yearMonth} value={m.yearMonth}>
+                                {m.label} ({formatRupiah(m.totalSales)})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Sub-mode selector pills */}
+                        <div className="pt-2.5 border-t border-slate-200/60 flex flex-wrap items-center gap-1.5 text-xs">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mr-1">Tampilan:</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedMonthWeekSubMode('all-4-weeks')}
+                            className={`px-3 py-1.5 rounded-xl font-black transition-all flex items-center gap-1.5 text-[11px] ${
+                              selectedMonthWeekSubMode === 'all-4-weeks'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            <BarChart2 className="w-3.5 h-3.5" />
+                            Komparasi Semua 4 Minggu (W1 - W4)
+                          </button>
+
+                          {currentMonthWeeks.map(wk => (
+                            <button
+                              key={wk.key}
+                              type="button"
+                              onClick={() => setSelectedMonthWeekSubMode(wk.key)}
+                              className={`px-3 py-1.5 rounded-xl font-bold transition-all text-[11px] ${
+                                selectedMonthWeekSubMode === wk.key
+                                  ? 'bg-indigo-600 text-white shadow-sm'
+                                  : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                              }`}
+                            >
+                              {wk.name} ({wk.startDay}-{wk.endDay})
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* View A: All 4 Weeks Side-by-Side */}
+                      {selectedMonthWeekSubMode === 'all-4-weeks' ? (
+                        <div className="space-y-4">
+                          {/* 4 Cards Grid */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                            {currentMonthWeeks.map((wk, idx) => {
+                              const borderColors = [
+                                'border-indigo-200 bg-indigo-50/40 text-indigo-900',
+                                'border-sky-200 bg-sky-50/40 text-sky-900',
+                                'border-amber-200 bg-amber-50/40 text-amber-900',
+                                'border-emerald-200 bg-emerald-50/40 text-emerald-900'
+                              ];
+                              const share = currentMonthTotalSummary.totalSales > 0
+                                ? ((wk.summary.totalSales / currentMonthTotalSummary.totalSales) * 100).toFixed(1)
+                                : '0';
+
+                              return (
+                                <div
+                                  key={wk.key}
+                                  onClick={() => setSelectedMonthWeekSubMode(wk.key)}
+                                  className={`border rounded-2xl p-3 cursor-pointer hover:shadow-md transition-all ${borderColors[idx]}`}
+                                >
+                                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/50">
+                                    <span className="text-[10px] font-black uppercase tracking-wider">{wk.name}</span>
+                                    <span className="text-[9px] font-bold opacity-70">Tgl {wk.startDay}-{wk.endDay}</span>
+                                  </div>
+
+                                  <div className="mt-2 space-y-1">
+                                    <span className="text-xs font-mono font-black block">
+                                      {formatRupiah(wk.summary.totalSales)}
+                                    </span>
+                                    <span className="text-[9.5px] opacity-80 block font-semibold">
+                                      {formatNumberIndo(wk.summary.totalTx)} Order • {share}% Bulan
+                                    </span>
+                                    {wk.growthSalesVsPrev && (
+                                      <span className={`inline-block text-[9px] font-black px-1.5 py-0.5 rounded ${
+                                        wk.growthSalesVsPrev.startsWith('+')
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : 'bg-rose-100 text-rose-800'
+                                      }`}>
+                                        vs {wk.prevWeekLabel}: {wk.growthSalesVsPrev}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Target status indicator */}
+                                  <div className="mt-2 pt-1.5 border-t border-slate-200/50 text-[9px] font-bold flex items-center justify-between">
+                                    <span>Target L1:</span>
+                                    <span className={wk.summary.totalSales >= wk.targetL1 ? 'text-emerald-700 font-extrabold' : 'text-amber-700'}>
+                                      {wk.summary.totalSales >= wk.targetL1 ? '✓ Tercapai' : `-${formatRupiahCompact(wk.neededL1)}`}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Side-by-Side Comparison Matrix Table */}
+                          <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
+                            <div className="bg-slate-100/90 px-3.5 py-2 border-b border-slate-200 flex items-center justify-between">
+                              <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+                                Matriks Komparasi 4 Minggu • {formatMonthLabel(selectedMonthlyWeekMonth || availableMonths[0]?.yearMonth)}
+                              </span>
+                              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                Total: {formatRupiah(currentMonthTotalSummary.totalSales)}
+                              </span>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-[11px] border-collapse">
+                                <thead>
+                                  <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 uppercase tracking-wider font-bold">
+                                    <th className="py-2 px-3">Metrik Kinerja</th>
+                                    {currentMonthWeeks.map(wk => (
+                                      <th key={wk.key} className="py-2 px-2 text-right">
+                                        {wk.name} <span className="text-[9px] font-normal block text-slate-400">({wk.startDay}-{wk.endDay})</span>
+                                      </th>
+                                    ))}
+                                    <th className="py-2 px-3 text-right bg-indigo-50/50 text-indigo-950 font-black">Total Bulan</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                                  {/* Row 1: Omzet */}
+                                  <tr className="bg-indigo-50/30 font-bold">
+                                    <td className="py-2 px-3 text-indigo-950 font-black">Total Omzet Penjualan</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-indigo-700 font-black">
+                                        {formatRupiah(wk.summary.totalSales)}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right font-mono text-indigo-900 font-black bg-indigo-50/50">
+                                      {formatRupiah(currentMonthTotalSummary.totalSales)}
+                                    </td>
+                                  </tr>
+
+                                  {/* Row 2: Growth vs Prev */}
+                                  <tr>
+                                    <td className="py-2 px-3 text-slate-500 font-semibold">Pertumbuhan vs Minggu Sblm</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right font-bold text-[10.5px]">
+                                        {wk.growthSalesVsPrev ? (
+                                          <span className={wk.growthSalesVsPrev.startsWith('+') ? 'text-emerald-700' : 'text-rose-700'}>
+                                            {wk.growthSalesVsPrev}
+                                          </span>
+                                        ) : (
+                                          <span className="text-slate-300">-</span>
+                                        )}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right text-slate-400 bg-indigo-50/50">-</td>
+                                  </tr>
+
+                                  {/* Row 3: Transaksi */}
+                                  <tr>
+                                    <td className="py-2 px-3">Total Transaksi (Orders)</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right font-mono">
+                                        {formatNumberIndo(wk.summary.totalTx)}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
+                                      {formatNumberIndo(currentMonthTotalSummary.totalTx)}
+                                    </td>
+                                  </tr>
+
+                                  {/* Row 4: AOV */}
+                                  <tr>
+                                    <td className="py-2 px-3">Rata-rata Order (AOV)</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
+                                        {formatRupiah(wk.summary.aov)}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right font-mono text-slate-700 font-bold bg-indigo-50/50">
+                                      {formatRupiah(currentMonthTotalSummary.aov)}
+                                    </td>
+                                  </tr>
+
+                                  {/* Row 5: Penjualan Instan */}
+                                  <tr>
+                                    <td className="py-2 px-3">Penjualan Instan</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
+                                        {formatRupiah(wk.summary.totalInstan)}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
+                                      {formatRupiah(currentMonthTotalSummary.totalInstan)}
+                                    </td>
+                                  </tr>
+
+                                  {/* Row 6: Penjualan Reguler */}
+                                  <tr>
+                                    <td className="py-2 px-3">Penjualan Reguler</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
+                                        {formatRupiah(wk.summary.totalReguler)}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
+                                      {formatRupiah(currentMonthTotalSummary.totalReguler)}
+                                    </td>
+                                  </tr>
+
+                                  {/* Row 7: Penjualan Manual */}
+                                  <tr>
+                                    <td className="py-2 px-3">Penjualan Manual</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
+                                        {formatRupiah(wk.summary.totalManual)}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
+                                      {formatRupiah(currentMonthTotalSummary.totalManual)}
+                                    </td>
+                                  </tr>
+
+                                  {/* Target Level 1 */}
+                                  <tr className="bg-amber-50/30">
+                                    <td className="py-2 px-3 font-bold text-amber-900">Target Level 1 (150M)</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
+                                        {wk.summary.totalSales >= wk.targetL1 ? (
+                                          <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                        ) : (
+                                          <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(wk.neededL1)} lagi</span>
+                                        )}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
+                                      {currentMonthTotalSummary.totalSales >= 600000000 ? (
+                                        <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                      ) : (
+                                        <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(600000000 - currentMonthTotalSummary.totalSales)} lagi</span>
+                                      )}
+                                    </td>
+                                  </tr>
+
+                                  {/* Target Level 2 */}
+                                  <tr className="bg-slate-50/60">
+                                    <td className="py-2 px-3 font-bold text-slate-800">Target Level 2 (175M)</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
+                                        {wk.summary.totalSales >= wk.targetL2 ? (
+                                          <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                        ) : (
+                                          <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(wk.neededL2)} lagi</span>
+                                        )}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
+                                      {currentMonthTotalSummary.totalSales >= 700000000 ? (
+                                        <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                      ) : (
+                                        <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(700000000 - currentMonthTotalSummary.totalSales)} lagi</span>
+                                      )}
+                                    </td>
+                                  </tr>
+
+                                  {/* Target Level 3 */}
+                                  <tr className="bg-amber-50/40">
+                                    <td className="py-2 px-3 font-bold text-indigo-950">Target Level 3 (200M)</td>
+                                    {currentMonthWeeks.map(wk => (
+                                      <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
+                                        {wk.summary.totalSales >= wk.targetL3 ? (
+                                          <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                        ) : (
+                                          <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(wk.neededL3)} lagi</span>
+                                        )}
+                                      </td>
+                                    ))}
+                                    <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
+                                      {currentMonthTotalSummary.totalSales >= 800000000 ? (
+                                        <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                      ) : (
+                                        <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(800000000 - currentMonthTotalSummary.totalSales)} lagi</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                          {/* Action Button for 4-Weeks Dedicated PDF */}
+                          <div className="bg-linear-to-r from-indigo-50 via-slate-50 to-indigo-50 border border-indigo-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+                            <div className="space-y-0.5">
+                              <h5 className="text-xs font-black text-indigo-950 uppercase tracking-wide">
+                                Cetak Laporan PDF Komparasi 4 Minggu
+                              </h5>
+                              <p className="text-[10.5px] text-slate-500 font-semibold">
+                                Menghasilkan PDF 2 halaman lengkap dengan matriks komparasi side-by-side W1-W4, evaluasi target, dan rincian produk SKU terlaris.
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => executeFourWeeksPDFDownload(selectedMonthlyWeekMonth || availableMonths[0]?.yearMonth)}
+                              disabled={isExporting}
+                              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+                            >
+                              <Download className="w-4 h-4" />
+                              Unduh Komparasi 4 Minggu (PDF)
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* View B: Single Week inspected in Monthly-Weeks mode */
+                        <div className="text-xs font-bold text-slate-500">
+                          {/* Will fallthrough to Single Period Inspector below */}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 2. CALENDAR WEEKS PRESET MODE */}
+                  {weeklySelectionMode === 'preset' && (
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
                         Pilih Periode Minggu
@@ -2555,8 +3875,10 @@ export default function SalesReportModal({
                         ))}
                       </select>
                     </div>
-                  ) : (
-                    /* Custom Date Range Picker */
+                  )}
+
+                  {/* 3. CUSTOM DATE RANGE PICKER MODE */}
+                  {weeklySelectionMode === 'custom' && (
                     <div className="space-y-3 bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4">
                       <div className="flex items-center justify-between">
                         <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
@@ -2614,154 +3936,287 @@ export default function SalesReportModal({
                     </div>
                   )}
 
-                  {/* MoM Comparison Toggle Box */}
-                  <div className="border border-indigo-100 bg-linear-to-r from-indigo-50/70 to-slate-50 p-3.5 rounded-2xl flex items-start gap-3 shadow-2xs">
-                    <input
-                      type="checkbox"
-                      id="mom-comparison-toggle"
-                      checked={includeMoMComparison}
-                      onChange={(e) => setIncludeMoMComparison(e.target.checked)}
-                      className="mt-1 w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 accent-indigo-600 cursor-pointer"
-                    />
-                    <label htmlFor="mom-comparison-toggle" className="flex-1 cursor-pointer select-none">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-black text-indigo-950">
-                          Sertakan Matriks Perbandingan Multi-Bulan (MoM) di PDF
-                        </span>
-                        <span className="text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                          Otomatis
-                        </span>
+                  {/* SINGLE PERIOD INSPECTOR & MOM COMPARISON (Shown when not in all-4-weeks mode) */}
+                  {(weeklySelectionMode !== 'monthly-weeks' || selectedMonthWeekSubMode !== 'all-4-weeks') && (
+                    <div className="space-y-4">
+                      {/* MoM Comparison Toggle Box */}
+                      <div className="border border-indigo-100 bg-linear-to-r from-indigo-50/70 to-slate-50 p-3.5 rounded-2xl flex items-start gap-3 shadow-2xs">
+                        <input
+                          type="checkbox"
+                          id="mom-comparison-toggle"
+                          checked={includeMoMComparison}
+                          onChange={(e) => setIncludeMoMComparison(e.target.checked)}
+                          className="mt-1 w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 accent-indigo-600 cursor-pointer"
+                        />
+                        <label htmlFor="mom-comparison-toggle" className="flex-1 cursor-pointer select-none">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-indigo-950">
+                              Sertakan Matriks Perbandingan Multi-Bulan (MoM) di PDF
+                            </span>
+                            <span className="text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                              Otomatis
+                            </span>
+                          </div>
+                          <p className="text-[10.5px] text-indigo-800/80 mt-0.5 leading-snug">
+                            Otomatis menyertakan tabel komparasi kinerja dengan <strong>{comparisonPeriods.m1Label} (M-1)</strong> dan <strong>{comparisonPeriods.m2Label} (M-2)</strong> beserta kalkulasi pertumbuhan omzet &amp; pesanan.
+                          </p>
+                        </label>
                       </div>
-                      <p className="text-[10.5px] text-indigo-800/80 mt-0.5 leading-snug">
-                        Otomatis menyertakan tabel komparasi kinerja dengan <strong>{comparisonPeriods.m1Label}</strong> (1 Bulan Lalu) dan <strong>{comparisonPeriods.m2Label}</strong> (2 Bulan Lalu) beserta kalkulasi pertumbuhan omzet &amp; pesanan.
-                      </p>
-                    </label>
-                  </div>
 
-                  {/* Detailed Preview Card with Multi-Period Comparison */}
-                  {(() => {
-                    const { current, m1, m2, salesGrowthM1, salesGrowthM2, txGrowthM1, txGrowthM2, m1Label, m2Label } = comparisonPeriods;
-                    const periodProductsCount = allProducts.filter(p => p.date && p.date >= activeRange.startDate && p.date <= activeRange.endDate).length;
+                      {/* Detailed Preview Card with Multi-Period Comparison */}
+                      {(() => {
+                        const { current, m1, m2, salesGrowthM1, salesGrowthM2, txGrowthM1, txGrowthM2, m1Label, m2Label } = comparisonPeriods;
+                        const periodProductsCount = allProducts.filter(p => p.date && p.date >= activeRange.startDate && p.date <= activeRange.endDate).length;
 
-                    return (
-                      <div className="border border-slate-200/80 rounded-2xl p-4 bg-slate-50/50 space-y-4 shadow-sm">
-                        <div className="flex items-center justify-between border-b border-slate-200/60 pb-2.5">
-                          <div>
-                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">
-                              Ringkasan Periode Terpilih ({weeklySelectionMode === 'preset' ? 'Minggu Kalender' : 'Rentang Kustom'})
-                            </span>
-                            <h4 className="text-xs font-black text-slate-800 mt-0.5">{activeRange.label}</h4>
-                          </div>
-                          <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-100">
-                            {current.activeDaysCount} Hari Kerja Aktif
-                          </span>
-                        </div>
-
-                        {/* Current Period KPIs */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                          <div className="space-y-0.5 bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
-                            <span className="text-[9.5px] text-slate-400 font-bold block">Total Omzet:</span>
-                            <span className="font-mono font-black text-indigo-600 text-sm block">
-                              {formatRupiah(current.totalSales)}
-                            </span>
-                          </div>
-
-                          <div className="space-y-0.5 bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
-                            <span className="text-[9.5px] text-slate-400 font-bold block">Total Transaksi:</span>
-                            <span className="font-mono font-black text-slate-800 text-sm block">
-                              {formatNumberIndo(current.totalTx)} Order
-                            </span>
-                          </div>
-
-                          <div className="space-y-0.5 bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
-                            <span className="text-[9.5px] text-slate-400 font-bold block">Rata-rata Order (AOV):</span>
-                            <span className="text-slate-700 font-extrabold text-[11px] block">
-                              {formatRupiah(current.aov)}
-                            </span>
-                          </div>
-
-                          <div className="space-y-0.5 bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
-                            <span className="text-[9.5px] text-slate-400 font-bold block">Omzet Rata-rata / Hari:</span>
-                            <span className="text-emerald-600 font-extrabold text-[11px] block">
-                              {formatRupiah(current.avgDailySales)}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Comparative Insight Card (MoM) */}
-                        {includeMoMComparison && (
-                          <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
-                            <div className="bg-slate-100/80 px-3 py-1.5 border-b border-slate-200/80 flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-600">
-                              <span className="flex items-center gap-1.5">
-                                <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
-                                Preview Matriks Perbandingan Multi-Bulan
+                        return (
+                          <div className="border border-slate-200/80 rounded-2xl p-4 bg-slate-50/50 space-y-4 shadow-sm">
+                            <div className="flex items-center justify-between border-b border-slate-200/60 pb-2.5">
+                              <div>
+                                <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">
+                                  Ringkasan Periode Terpilih
+                                </span>
+                                <h4 className="text-xs font-black text-slate-800 mt-0.5">{activeRange.label}</h4>
+                              </div>
+                              <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-100">
+                                {current.activeDaysCount} Hari Kerja Aktif
                               </span>
-                              <span className="text-indigo-600 font-bold">2 Periode Pembanding</span>
                             </div>
 
-                            <div className="divide-y divide-slate-100 text-[11px]">
-                              {/* 1 Month Ago Comparison */}
-                              <div className="p-3 flex items-center justify-between hover:bg-slate-50/80 transition-colors">
-                                <div className="space-y-0.5">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-black text-slate-800">1 Bulan Lalu (M-1):</span>
-                                    <span className="text-[10px] text-slate-500 font-semibold">{m1Label}</span>
-                                  </div>
-                                  <p className="text-[10px] text-slate-500">
-                                    Omzet: <strong>{formatRupiah(m1.totalSales)}</strong> • {formatNumberIndo(m1.totalTx)} transaksi
-                                  </p>
-                                </div>
-                                <div className="text-right">
-                                  <span className={`inline-flex items-center gap-1 text-[10.5px] font-black px-2 py-0.5 rounded-md ${
-                                    salesGrowthM1 >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-rose-50 text-rose-700 border border-rose-200/60'
-                                  }`}>
-                                    {salesGrowthM1 >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                                    {salesGrowthM1 >= 0 ? '+' : ''}{salesGrowthM1.toFixed(1)}% Omzet
-                                  </span>
-                                  <span className="block text-[9px] text-slate-400 font-bold mt-0.5">
-                                    Tx: {txGrowthM1 >= 0 ? '+' : ''}{txGrowthM1.toFixed(1)}%
-                                  </span>
-                                </div>
+                            {/* Current Period KPIs */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                              <div className="space-y-0.5 bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
+                                <span className="text-[9.5px] text-slate-400 font-bold block">Total Omzet:</span>
+                                <span className="font-mono font-black text-indigo-600 text-sm block">
+                                  {formatRupiah(current.totalSales)}
+                                </span>
                               </div>
 
-                              {/* 2 Months Ago Comparison */}
-                              <div className="p-3 flex items-center justify-between hover:bg-slate-50/80 transition-colors">
-                                <div className="space-y-0.5">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-black text-slate-800">2 Bulan Lalu (M-2):</span>
-                                    <span className="text-[10px] text-slate-500 font-semibold">{m2Label}</span>
-                                  </div>
-                                  <p className="text-[10px] text-slate-500">
-                                    Omzet: <strong>{formatRupiah(m2.totalSales)}</strong> • {formatNumberIndo(m2.totalTx)} transaksi
-                                  </p>
+                              <div className="space-y-0.5 bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
+                                <span className="text-[9.5px] text-slate-400 font-bold block">Total Transaksi:</span>
+                                <span className="font-mono font-black text-slate-800 text-sm block">
+                                  {formatNumberIndo(current.totalTx)} Order
+                                </span>
+                              </div>
+
+                              <div className="space-y-0.5 bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
+                                <span className="text-[9.5px] text-slate-400 font-bold block">Rata-rata Order (AOV):</span>
+                                <span className="text-slate-700 font-extrabold text-[11px] block">
+                                  {formatRupiah(current.aov)}
+                                </span>
+                              </div>
+
+                              <div className="space-y-0.5 bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
+                                <span className="text-[9.5px] text-slate-400 font-bold block">Omzet Rata-rata / Hari:</span>
+                                <span className="text-emerald-600 font-extrabold text-[11px] block">
+                                  {formatRupiah(current.avgDailySales)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Comparative Insight Card (MoM) */}
+                            {includeMoMComparison && (
+                              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                                <div className="bg-slate-100/80 px-3 py-1.5 border-b border-slate-200/80 flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-600">
+                                  <span className="flex items-center gap-1.5">
+                                    <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+                                    Preview Matriks Perbandingan Multi-Bulan
+                                  </span>
+                                  <span className="text-indigo-600 font-bold">2 Periode Pembanding</span>
                                 </div>
-                                <div className="text-right">
-                                  <span className={`inline-flex items-center gap-1 text-[10.5px] font-black px-2 py-0.5 rounded-md ${
-                                    salesGrowthM2 >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-rose-50 text-rose-700 border border-rose-200/60'
-                                  }`}>
-                                    {salesGrowthM2 >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                                    {salesGrowthM2 >= 0 ? '+' : ''}{salesGrowthM2.toFixed(1)}% Omzet
-                                  </span>
-                                  <span className="block text-[9px] text-slate-400 font-bold mt-0.5">
-                                    Tx: {txGrowthM2 >= 0 ? '+' : ''}{txGrowthM2.toFixed(1)}%
-                                  </span>
+
+                                <div className="divide-y divide-slate-100 text-[11px]">
+                                  {/* 1 Month Ago Comparison */}
+                                  <div className="p-3 flex items-center justify-between hover:bg-slate-50/80 transition-colors">
+                                    <div className="space-y-0.5">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-black text-slate-800">1 Bulan Lalu (M-1):</span>
+                                        <span className="text-[10px] text-slate-500 font-semibold">{m1Label}</span>
+                                      </div>
+                                      <p className="text-[10px] text-slate-500">
+                                        Omzet: <strong>{formatRupiah(m1.totalSales)}</strong> • {formatNumberIndo(m1.totalTx)} transaksi
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className={`inline-flex items-center gap-1 text-[10.5px] font-black px-2 py-0.5 rounded-md ${
+                                        salesGrowthM1 >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-rose-50 text-rose-700 border border-rose-200/60'
+                                      }`}>
+                                        {salesGrowthM1 >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                                        {salesGrowthM1 >= 0 ? '+' : ''}{salesGrowthM1.toFixed(1)}% Omzet
+                                      </span>
+                                      <span className="block text-[9px] text-slate-400 font-bold mt-0.5">
+                                        Tx: {txGrowthM1 >= 0 ? '+' : ''}{txGrowthM1.toFixed(1)}%
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* 2 Months Ago Comparison */}
+                                  <div className="p-3 flex items-center justify-between hover:bg-slate-50/80 transition-colors">
+                                    <div className="space-y-0.5">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-black text-slate-800">2 Bulan Lalu (M-2):</span>
+                                        <span className="text-[10px] text-slate-500 font-semibold">{m2Label}</span>
+                                      </div>
+                                      <p className="text-[10px] text-slate-500">
+                                        Omzet: <strong>{formatRupiah(m2.totalSales)}</strong> • {formatNumberIndo(m2.totalTx)} transaksi
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className={`inline-flex items-center gap-1 text-[10.5px] font-black px-2 py-0.5 rounded-md ${
+                                        salesGrowthM2 >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-rose-50 text-rose-700 border border-rose-200/60'
+                                      }`}>
+                                        {salesGrowthM2 >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                                        {salesGrowthM2 >= 0 ? '+' : ''}{salesGrowthM2.toFixed(1)}% Omzet
+                                      </span>
+                                      <span className="block text-[9px] text-slate-400 font-bold mt-0.5">
+                                        Tx: {txGrowthM2 >= 0 ? '+' : ''}{txGrowthM2.toFixed(1)}%
+                                      </span>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
+                            )}
+
+                            {/* Target Pencapaian Berjenjang (Level 1, 2, 3) */}
+                            {(() => {
+                              const diffDays = Math.max(1, Math.round((new Date(activeRange.endDate).getTime() - new Date(activeRange.startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1);
+                              const targetMultiplier = diffDays === 7 ? 1 : diffDays / 7;
+                              const targetL1 = Math.round(150000000 * targetMultiplier);
+                              const targetL2 = Math.round(175000000 * targetMultiplier);
+                              const targetL3 = Math.round(200000000 * targetMultiplier);
+
+                              const pctL1 = (current.totalSales / targetL1) * 100;
+                              const pctL2 = (current.totalSales / targetL2) * 100;
+                              const pctL3 = (current.totalSales / targetL3) * 100;
+
+                              const levels = [
+                                {
+                                  level: 1,
+                                  title: 'Target Level 1',
+                                  badge: 'Bronze',
+                                  target: targetL1,
+                                  pct: pctL1,
+                                  achieved: current.totalSales >= targetL1,
+                                  accentColor: 'border-amber-200/80 bg-amber-50/40 text-amber-900',
+                                  barColor: 'bg-amber-500'
+                                },
+                                {
+                                  level: 2,
+                                  title: 'Target Level 2',
+                                  badge: 'Silver',
+                                  target: targetL2,
+                                  pct: pctL2,
+                                  achieved: current.totalSales >= targetL2,
+                                  accentColor: 'border-slate-200 bg-slate-50/70 text-slate-800',
+                                  barColor: 'bg-slate-500'
+                                },
+                                {
+                                  level: 3,
+                                  title: 'Target Level 3',
+                                  badge: 'Gold',
+                                  target: targetL3,
+                                  pct: pctL3,
+                                  achieved: current.totalSales >= targetL3,
+                                  accentColor: 'border-indigo-200/80 bg-indigo-50/40 text-indigo-900',
+                                  barColor: 'bg-indigo-600'
+                                }
+                              ];
+
+                              return (
+                                <div className="border border-slate-200 rounded-xl p-3 bg-white shadow-2xs space-y-2.5">
+                                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <Trophy className="w-4 h-4 text-amber-500" />
+                                      <div>
+                                        <span className="text-[11px] font-black uppercase text-slate-800 tracking-wider block">
+                                          Evaluasi Target: Butuh Berapa Lagi Agar Bisa Mencapai Target
+                                        </span>
+                                        <span className="text-[9.5px] text-slate-400 font-semibold block">
+                                          Target berjenjang mingguan (Level 1: 150M • Level 2: 175M • Level 3: 200M)
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Hasil Penjualan Mingguan</span>
+                                      <span className="text-[11.5px] font-black text-indigo-600 font-mono">{formatRupiah(current.totalSales)}</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                    {levels.map((lvl) => {
+                                      const surplus = current.totalSales - lvl.target;
+                                      const needed = lvl.target - current.totalSales;
+                                      return (
+                                        <div key={lvl.level} className={`border rounded-lg p-2.5 flex flex-col justify-between space-y-2 ${lvl.accentColor}`}>
+                                          <div className="flex items-center justify-between">
+                                            <div>
+                                              <span className="text-[9px] font-black uppercase tracking-wider block opacity-70">
+                                                {lvl.title} ({lvl.badge})
+                                              </span>
+                                              <span className="text-[10.5px] font-mono font-black block">
+                                                Target: {formatRupiah(lvl.target)}
+                                              </span>
+                                            </div>
+                                            <span className={`text-[10px] font-black font-mono px-1.5 py-0.5 rounded border ${
+                                              lvl.achieved ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-700 border-rose-200'
+                                            }`}>
+                                              {lvl.pct.toFixed(1)}%
+                                            </span>
+                                          </div>
+
+                                          {/* Status Butuh Berapa Lagi / Tercapai */}
+                                          <div className={`p-1.5 rounded-md text-[10px] leading-tight ${
+                                            lvl.achieved ? 'bg-emerald-100/60 text-emerald-900 border border-emerald-200/60' : 'bg-rose-50 text-rose-800 border border-rose-200/60'
+                                          }`}>
+                                            {lvl.achieved ? (
+                                              <div className="flex items-center gap-1 font-bold">
+                                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                                <span>Target Tercapai (Surplus +{formatRupiah(surplus)})</span>
+                                              </div>
+                                            ) : (
+                                              <div>
+                                                <span className="font-extrabold text-rose-700 block">
+                                                  Butuh {formatRupiah(needed)} lagi
+                                                </span>
+                                                <span className="text-[9px] opacity-80 block">
+                                                  agar bisa mencapai target {lvl.title}
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
+
+                                          <div className="space-y-1">
+                                            <div className="w-full bg-slate-200/80 rounded-full h-1.5 overflow-hidden">
+                                              <div
+                                                className={`h-full transition-all duration-500 rounded-full ${lvl.barColor}`}
+                                                style={{ width: `${Math.min(lvl.pct, 100)}%` }}
+                                              />
+                                            </div>
+                                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500">
+                                              <span>Progres: {lvl.pct.toFixed(1)}%</span>
+                                              <span>{lvl.achieved ? '✓ Terlampaui' : `Sisa ${(100 - lvl.pct).toFixed(1)}%`}</span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            <div className="pt-2 border-t border-slate-200/50 flex items-center justify-between text-[10.5px]">
+                              <span className="text-slate-500 font-semibold">
+                                Data Rincian Produk Terkait Periode Ini:
+                              </span>
+                              <span className="text-indigo-600 font-bold">
+                                {isProductsLoading ? 'Memuat data produk...' : `${periodProductsCount} catatan transaksi produk`}
+                              </span>
                             </div>
                           </div>
-                        )}
-
-                        <div className="pt-2 border-t border-slate-200/50 flex items-center justify-between text-[10.5px]">
-                          <span className="text-slate-500 font-semibold">
-                            Data Rincian Produk Terkait Periode Ini:
-                          </span>
-                          <span className="text-indigo-600 font-bold">
-                            {isProductsLoading ? 'Memuat data produk...' : `${periodProductsCount} catatan transaksi produk`}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
               ) : reportType === 'monthly' ? (
                 <>
@@ -2928,10 +4383,14 @@ export default function SalesReportModal({
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
               <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
                 {reportType === 'weekly' ? (
-                  <>
-                    Periode: <strong className="text-indigo-600 font-extrabold">{formatDateShort(activeRange.startDate)} - {formatDateShort(activeRange.endDate)}</strong>
-                    {includeMoMComparison && <span className="text-emerald-600 font-extrabold ml-1.5">• Komparasi MoM</span>}
-                  </>
+                  weeklySelectionMode === 'monthly-weeks' && selectedMonthWeekSubMode === 'all-4-weeks' ? (
+                    <>Komparasi 4 Minggu: <strong className="text-indigo-600 font-extrabold">{formatMonthLabel(selectedMonthlyWeekMonth || availableMonths[0]?.yearMonth)}</strong></>
+                  ) : (
+                    <>
+                      Periode: <strong className="text-indigo-600 font-extrabold">{formatDateShort(activeRange.startDate)} - {formatDateShort(activeRange.endDate)}</strong>
+                      {includeMoMComparison && <span className="text-emerald-600 font-extrabold ml-1.5">• Komparasi MoM</span>}
+                    </>
+                  )
                 ) : reportType === 'monthly' ? (
                   <>Terpilih: <strong className="text-indigo-600 font-extrabold">{selectedMonths.length} Bulan</strong></>
                 ) : (
@@ -2951,7 +4410,11 @@ export default function SalesReportModal({
                   type="button"
                   onClick={() => {
                     if (reportType === 'weekly') {
-                      executePeriodPDFDownload(activeRange.startDate, activeRange.endDate, includeMoMComparison);
+                      if (weeklySelectionMode === 'monthly-weeks' && selectedMonthWeekSubMode === 'all-4-weeks') {
+                        executeFourWeeksPDFDownload(selectedMonthlyWeekMonth || availableMonths[0]?.yearMonth);
+                      } else {
+                        executePeriodPDFDownload(activeRange.startDate, activeRange.endDate, includeMoMComparison);
+                      }
                     } else if (reportType === 'monthly') {
                       handleStartDownload();
                     } else {
@@ -2960,15 +4423,21 @@ export default function SalesReportModal({
                   }}
                   disabled={
                     reportType === 'weekly'
-                      ? !activeRange.startDate || !activeRange.endDate || isProductsLoading
+                      ? (weeklySelectionMode === 'monthly-weeks' && selectedMonthWeekSubMode === 'all-4-weeks'
+                          ? isProductsLoading || !selectedMonthlyWeekMonth
+                          : !activeRange.startDate || !activeRange.endDate || isProductsLoading)
                       : reportType === 'monthly'
                       ? selectedMonths.length === 0
                       : !selectedDailyDate || isProductsLoading
                   }
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 hover:scale-[1.01]"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 hover:scale-[1.01] cursor-pointer"
                 >
                   <Download className="w-4 h-4 text-white" />
-                  {isProductsLoading ? 'Memuat Produk...' : 'Mulai Unduh'}
+                  {isProductsLoading
+                    ? 'Memuat Produk...'
+                    : reportType === 'weekly' && weeklySelectionMode === 'monthly-weeks' && selectedMonthWeekSubMode === 'all-4-weeks'
+                    ? 'Unduh Komparasi 4 Minggu (PDF)'
+                    : 'Mulai Unduh'}
                 </button>
               </div>
             </div>

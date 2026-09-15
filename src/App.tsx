@@ -16,6 +16,7 @@ import EventModal from './components/EventModal';
 import SalesReportModal from './components/SalesReportModal';
 import SalesProducts from './components/SalesProducts';
 import SalesHeatmap from './components/SalesHeatmap';
+import { SyncProgressIndicator, SyncProgressState } from './components/SyncProgressIndicator';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { 
@@ -293,6 +294,17 @@ export default function App() {
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   
+  // Google Sheet synchronization progress & duration estimation state
+  const [syncProgress, setSyncProgress] = useState<SyncProgressState>({
+    isActive: false,
+    stage: 'idle',
+    percent: 0,
+    title: '',
+    detail: '',
+    estimatedSecondsRemaining: 0,
+    elapsedSeconds: 0
+  });
+  
   // Global date range filters
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
@@ -323,43 +335,179 @@ export default function App() {
     }, 3000);
   };
 
-  // Fetch data from CSV Google Sheet
+  // Fetch data from CSV Google Sheet with progress & duration estimation
   const fetchData = async (urlToFetch: string, forceNetwork: boolean = false) => {
     setIsLoading(true);
     setIsError(null);
+
+    const startTime = Date.now();
+    setSyncProgress({
+      isActive: true,
+      stage: 'connecting',
+      percent: 15,
+      title: 'Menghubungkan ke Google Sheet...',
+      detail: 'Menginisialisasi koneksi aman & mengirim permintaan...',
+      estimatedSecondsRemaining: 2.2,
+      elapsedSeconds: 0
+    });
+
+    const progressTimer = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      setSyncProgress(prev => {
+        if (!prev.isActive || prev.stage === 'completed' || prev.stage === 'error') return prev;
+        let targetPct = prev.percent;
+        if (prev.stage === 'connecting') {
+          targetPct = Math.min(38, prev.percent + 2.2);
+        } else if (prev.stage === 'downloading') {
+          targetPct = Math.min(78, prev.percent + 3.0);
+        } else if (prev.stage === 'parsing') {
+          targetPct = Math.min(92, prev.percent + 1.5);
+        }
+        const estRemaining = Math.max(0.3, Math.round((2.4 - elapsed) * 10) / 10);
+        return {
+          ...prev,
+          percent: targetPct,
+          elapsedSeconds: elapsed,
+          estimatedSecondsRemaining: estRemaining
+        };
+      });
+    }, 120);
+
     try {
       if (!forceNetwork) {
-        // Cek data di IndexedDB terlebih dahulu untuk loading instan
+        setSyncProgress(prev => ({
+          ...prev,
+          title: 'Memeriksa Cache Lokal...',
+          detail: 'Mengecek data tersimpan di IndexedDB...'
+        }));
         const cachedData = await getSalesCache(urlToFetch);
         if (cachedData && cachedData.length > 0) {
+          clearInterval(progressTimer);
+          const elapsed = (Date.now() - startTime) / 1000;
+          setSyncProgress({
+            isActive: true,
+            stage: 'completed',
+            percent: 100,
+            title: 'Data Dimuat dari Cache Lokal',
+            detail: `${cachedData.length} baris data berhasil dimuat instan.`,
+            estimatedSecondsRemaining: 0,
+            elapsedSeconds: elapsed,
+            itemCount: cachedData.length
+          });
           setSalesData(cachedData);
           setIsUsingCache(true);
           setIsLoading(false);
           showToast("Data penjualan dimuat instan dari cache lokal!", "success");
+          setTimeout(() => {
+            setSyncProgress(prev => ({ ...prev, isActive: false }));
+          }, 600);
           return;
         }
       }
 
-      // Tarik data baru dari Google Sheets
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'downloading',
+        percent: Math.max(prev.percent, 42),
+        title: 'Mengunduh Data Google Sheets...',
+        detail: 'Menerima stream data spreadsheet...',
+        estimatedSecondsRemaining: 1.6
+      }));
+
       const response = await fetch(urlToFetch);
       if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-      const text = await response.text();
+
+      let text = '';
+      const reader = response.body?.getReader();
+      if (reader) {
+        const decoder = new TextDecoder('utf-8');
+        let receivedBytes = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          receivedBytes += value.length;
+          text += decoder.decode(value, { stream: true });
+          setSyncProgress(prev => ({
+            ...prev,
+            stage: 'downloading',
+            percent: Math.min(82, Math.max(prev.percent, 45 + Math.round((receivedBytes / 50000) * 35))),
+            detail: `Menerima stream: ${Math.round(receivedBytes / 1024)} KB diunduh...`,
+            totalBytes: receivedBytes,
+            estimatedSecondsRemaining: 1.0
+          }));
+        }
+      } else {
+        text = await response.text();
+      }
+
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'parsing',
+        percent: 86,
+        title: 'Memproses & Memvalidasi CSV...',
+        detail: 'Menyusun tanggal, order & transaksi harian...',
+        estimatedSecondsRemaining: 0.6
+      }));
+
+      await new Promise(r => setTimeout(r, 60));
+
       const parsed = parseDailySalesCSV(text);
-      
       if (parsed.length === 0) {
         throw new Error('Gagal memproses data atau format baris tidak dikenali. Pastikan kolom sesuai.');
       }
-      
+
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'indexing',
+        percent: 94,
+        title: 'Menyimpan ke Cache Lokal...',
+        detail: `Menyimpan ${parsed.length} baris data ke IndexedDB...`,
+        itemCount: parsed.length,
+        estimatedSecondsRemaining: 0.2
+      }));
+
       setSalesData(parsed);
       await setSalesCache(urlToFetch, parsed);
       setIsUsingCache(false);
       localStorage.setItem('sales_csv_url', urlToFetch);
+
+      clearInterval(progressTimer);
+      const totalElapsed = (Date.now() - startTime) / 1000;
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'completed',
+        percent: 100,
+        title: 'Sinkronisasi Selesai!',
+        detail: `Berhasil menyinkronkan ${parsed.length} data penjualan real-time.`,
+        estimatedSecondsRemaining: 0,
+        elapsedSeconds: totalElapsed,
+        itemCount: parsed.length
+      }));
+
       showToast("Data penjualan berhasil disinkronkan!", "success");
+      setTimeout(() => {
+        setSyncProgress(prev => ({ ...prev, isActive: false }));
+      }, 750);
     } catch (err: any) {
+      clearInterval(progressTimer);
       console.error(err);
+      const totalElapsed = (Date.now() - startTime) / 1000;
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'error',
+        percent: 100,
+        title: 'Sinkronisasi Gagal',
+        detail: err.message || 'Gagal memuat data penjualan Google Sheet.',
+        estimatedSecondsRemaining: 0,
+        elapsedSeconds: totalElapsed
+      }));
       setIsError(err.message || 'Gagal memuat data penjualan Google Sheet. Periksa koneksi internet Anda.');
       showToast("Gagal menyinkronkan data Google Sheet", "error");
+      setTimeout(() => {
+        setSyncProgress(prev => ({ ...prev, isActive: false }));
+      }, 3000);
     } finally {
+      clearInterval(progressTimer);
       setIsLoading(false);
     }
   };
@@ -879,10 +1027,10 @@ export default function App() {
             <button
               onClick={handleSync}
               disabled={isSyncing || isLoading}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-extrabold uppercase tracking-widest px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-extrabold uppercase tracking-widest px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              Sinkronkan
+              {isSyncing ? `${Math.round(syncProgress.percent)}% Sinkron...` : 'Sinkronkan'}
             </button>
           </div>
 
@@ -947,19 +1095,26 @@ export default function App() {
       {/* Primary Stage Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
         
-        {/* Loader Screen */}
-        {isLoading && (
-          <div className="bg-white rounded-3xl p-16 text-center border border-slate-200 shadow-sm space-y-4 flex flex-col items-center justify-center min-h-[450px]">
-            <RefreshCw className="w-10 h-10 text-indigo-600 animate-spin" />
-            <div>
-              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Menghubungkan Spreadsheet...</h3>
-              <p className="text-xs text-slate-400 font-semibold mt-1">Mengambil data penjualan real-time, silakan tunggu beberapa detik.</p>
-            </div>
-          </div>
+        {/* Loader Screen: shown on initial cold start when no data loaded yet */}
+        {isLoading && salesData.length === 0 && (
+          <SyncProgressIndicator
+            progress={syncProgress}
+            variant="card"
+            sheetTitle="Google Sheet Penjualan (Harian)"
+          />
+        )}
+
+        {/* Floating Sync Progress Modal: displayed during manual re-sync while viewing dashboard */}
+        {syncProgress.isActive && salesData.length > 0 && (
+          <SyncProgressIndicator
+            progress={syncProgress}
+            variant="modal"
+            sheetTitle="Google Sheet Penjualan (Harian)"
+          />
         )}
 
         {/* Error Screen */}
-        {isError && !isLoading && (
+        {isError && !isLoading && salesData.length === 0 && (
           <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 shadow-sm space-y-5 flex flex-col items-center justify-center min-h-[450px]">
             <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 rounded-full">
               <AlertCircle className="w-10 h-10" />
@@ -971,15 +1126,15 @@ export default function App() {
             
             <button
               onClick={() => fetchData(DEFAULT_CSV_URL)}
-              className="text-xs font-black uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-700 px-6 py-3 rounded-xl shadow-sm transition-all"
+              className="text-xs font-black uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-700 px-6 py-3 rounded-xl shadow-sm transition-all cursor-pointer"
             >
               Ganti ke Sheet Penjualan Bawaan
             </button>
           </div>
         )}
 
-        {/* Render content panels if data exists and is not loading */}
-        {!isLoading && !isError && salesData.length > 0 && (
+        {/* Render content panels if data exists and is not in error */}
+        {!isError && salesData.length > 0 && (
           <div className="space-y-6">
             
             {/* Banner Motivasi / Context */}

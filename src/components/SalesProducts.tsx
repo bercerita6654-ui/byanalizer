@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ProductPerformance } from '../types';
 import { parseProductPerformanceCSV, parseStockListImageMap, formatRupiah, formatNumberIndo, formatRupiahCompact } from '../utils';
 import { getProductsCache, setProductsCache } from '../dbCache';
+import { SyncProgressIndicator, SyncProgressState } from './SyncProgressIndicator';
 import { 
   Package, Search, Filter, ArrowUpDown, Tag, Compass, 
   TrendingUp, BarChart2, DollarSign, Flame, FolderOpen, 
@@ -188,30 +189,120 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
 
   const [isUsingCache, setIsUsingCache] = useState<boolean>(false);
 
-  // Fetch product CSV data
+  // Sync progress & duration estimation for product spreadsheet
+  const [syncProgress, setSyncProgress] = useState<SyncProgressState>({
+    isActive: false,
+    stage: 'idle',
+    percent: 0,
+    title: '',
+    detail: '',
+    estimatedSecondsRemaining: 0,
+    elapsedSeconds: 0
+  });
+
+  // Fetch product CSV data with progress & duration estimation
   const fetchProductData = async (forceNetwork: boolean = false) => {
     setIsLoading(true);
     setIsError(null);
+
+    const startTime = Date.now();
+    setSyncProgress({
+      isActive: true,
+      stage: 'connecting',
+      percent: 15,
+      title: 'Menghubungkan ke Google Sheet Produk...',
+      detail: 'Menginisialisasi koneksi data produk...',
+      estimatedSecondsRemaining: 2.0,
+      elapsedSeconds: 0
+    });
+
+    const progressTimer = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      setSyncProgress(prev => {
+        if (!prev.isActive || prev.stage === 'completed' || prev.stage === 'error') return prev;
+        let targetPct = prev.percent;
+        if (prev.stage === 'connecting') {
+          targetPct = Math.min(38, prev.percent + 2.0);
+        } else if (prev.stage === 'downloading') {
+          targetPct = Math.min(75, prev.percent + 2.8);
+        } else if (prev.stage === 'parsing') {
+          targetPct = Math.min(92, prev.percent + 1.8);
+        }
+        const estRemaining = Math.max(0.3, Math.round((2.2 - elapsed) * 10) / 10);
+        return {
+          ...prev,
+          percent: targetPct,
+          elapsedSeconds: elapsed,
+          estimatedSecondsRemaining: estRemaining
+        };
+      });
+    }, 120);
+
     try {
       let parsed: ProductPerformance[] = [];
       if (forceNetwork === false || (typeof forceNetwork !== 'boolean')) {
-        // Cek data di IndexedDB terlebih dahulu untuk loading instan
+        setSyncProgress(prev => ({
+          ...prev,
+          title: 'Memeriksa Cache Lokal Produk...',
+          detail: 'Mengecek data di IndexedDB...'
+        }));
         const cachedData = await getProductsCache(PRODUCTS_CSV_URL);
         if (cachedData && cachedData.length > 0) {
           parsed = cachedData;
           setIsUsingCache(true);
+          clearInterval(progressTimer);
+          const elapsed = (Date.now() - startTime) / 1000;
+          setSyncProgress({
+            isActive: true,
+            stage: 'completed',
+            percent: 100,
+            title: 'Data Produk Dimuat dari Cache',
+            detail: `${cachedData.length} produk siap dianalisa.`,
+            estimatedSecondsRemaining: 0,
+            elapsedSeconds: elapsed,
+            itemCount: cachedData.length
+          });
+          setProducts(parsed);
+          setTimeout(() => {
+            setSyncProgress(prev => ({ ...prev, isActive: false }));
+          }, 600);
+          return;
         }
       }
 
-      if (parsed.length === 0) {
-        const resProd = await fetch(PRODUCTS_CSV_URL);
-        if (!resProd.ok) throw new Error(`HTTP Error: ${resProd.status}`);
-        const textProd = await resProd.text();
-        parsed = parseProductPerformanceCSV(textProd);
-        setIsUsingCache(false);
-      }
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'downloading',
+        percent: Math.max(prev.percent, 40),
+        title: 'Mengunduh Sheet Produk...',
+        detail: 'Mengambil data performa produk & stok...',
+        estimatedSecondsRemaining: 1.5
+      }));
+
+      const resProd = await fetch(PRODUCTS_CSV_URL);
+      if (!resProd.ok) throw new Error(`HTTP Error: ${resProd.status}`);
+      const textProd = await resProd.text();
+
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'parsing',
+        percent: 70,
+        title: 'Memproses Format Produk...',
+        detail: 'Menyusun kategori, harga, omzet & margin...',
+        estimatedSecondsRemaining: 1.0
+      }));
+
+      parsed = parseProductPerformanceCSV(textProd);
+      setIsUsingCache(false);
 
       // Tarik data Stock List untuk Foto Produk
+      setSyncProgress(prev => ({
+        ...prev,
+        percent: 85,
+        detail: 'Menghubungkan visual foto dari Stock List...',
+        estimatedSecondsRemaining: 0.5
+      }));
+
       const resStock = await fetch(STOCK_LIST_CSV_URL).catch(() => null);
       if (resStock && resStock.ok) {
         const textStock = await resStock.text();
@@ -230,12 +321,55 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
       if (parsed.length === 0) {
         throw new Error('Gagal memproses data produk atau format kolom tidak sesuai.');
       }
+
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'indexing',
+        percent: 95,
+        title: 'Menyimpan Cache Produk...',
+        detail: `Menyimpan ${parsed.length} produk ke IndexedDB...`,
+        itemCount: parsed.length,
+        estimatedSecondsRemaining: 0.2
+      }));
+
       setProducts(parsed);
       await setProductsCache(PRODUCTS_CSV_URL, parsed);
+
+      clearInterval(progressTimer);
+      const totalElapsed = (Date.now() - startTime) / 1000;
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'completed',
+        percent: 100,
+        title: 'Sinkronisasi Produk Selesai!',
+        detail: `Berhasil memuat ${parsed.length} produk real-time.`,
+        estimatedSecondsRemaining: 0,
+        elapsedSeconds: totalElapsed,
+        itemCount: parsed.length
+      }));
+
+      setTimeout(() => {
+        setSyncProgress(prev => ({ ...prev, isActive: false }));
+      }, 750);
     } catch (err: any) {
+      clearInterval(progressTimer);
       console.error(err);
+      const totalElapsed = (Date.now() - startTime) / 1000;
+      setSyncProgress(prev => ({
+        ...prev,
+        stage: 'error',
+        percent: 100,
+        title: 'Gagal Sinkronisasi Produk',
+        detail: err.message || 'Gagal memuat data produk. Pastikan koneksi internet aktif.',
+        estimatedSecondsRemaining: 0,
+        elapsedSeconds: totalElapsed
+      }));
       setIsError(err.message || 'Gagal memuat data produk. Pastikan koneksi internet aktif.');
+      setTimeout(() => {
+        setSyncProgress(prev => ({ ...prev, isActive: false }));
+      }, 3000);
     } finally {
+      clearInterval(progressTimer);
       setIsLoading(false);
     }
   };
@@ -1849,22 +1983,30 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
             className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-200/50 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-            Sinkronkan Data Produk
+            {isLoading ? `${Math.round(syncProgress.percent)}% Sinkron...` : 'Sinkronkan Data Produk'}
           </button>
         </div>
       </div>
 
-      {isLoading && (
-        <div className="bg-white rounded-3xl p-16 text-center border border-slate-200 shadow-sm space-y-4 flex flex-col items-center justify-center min-h-[400px]">
-          <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
-          <div>
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Memproses Spreadsheet Produk...</h3>
-            <p className="text-xs text-slate-400 font-semibold mt-1">Mengunduh &amp; menganalisa data dari Google Sheet produk secara real-time.</p>
-          </div>
-        </div>
+      {/* Cold start product loader with progress bar */}
+      {isLoading && products.length === 0 && (
+        <SyncProgressIndicator
+          progress={syncProgress}
+          variant="card"
+          sheetTitle="Google Sheet Produk & Stok"
+        />
       )}
 
-      {isError && !isLoading && (
+      {/* Floating progress modal when re-syncing while products already exist */}
+      {syncProgress.isActive && products.length > 0 && (
+        <SyncProgressIndicator
+          progress={syncProgress}
+          variant="modal"
+          sheetTitle="Google Sheet Produk & Stok"
+        />
+      )}
+
+      {isError && !isLoading && products.length === 0 && (
         <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 shadow-sm space-y-5 flex flex-col items-center justify-center min-h-[400px]">
           <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 rounded-full">
             <AlertCircle className="w-10 h-10" />
@@ -1883,7 +2025,7 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
         </div>
       )}
 
-      {!isLoading && !isError && (
+      {!isError && products.length > 0 && (
         <>
           {/* Top Control & Filter Bar */}
           <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">

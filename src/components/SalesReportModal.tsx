@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DailySales, MarketingEvent, ProductPerformance } from '../types';
 import { formatRupiah, formatNumberIndo, formatDateIndo, parseProductPerformanceCSV, formatRupiahCompact } from '../utils';
 import { getProductsCache, setProductsCache } from '../dbCache';
-import { Download, CheckCircle2, X, Calendar, FileText, Check, TrendingUp, ArrowRight, ArrowUpRight, ArrowDownRight, Layers, SlidersHorizontal, Trophy, Target, Award, CalendarDays, BarChart2 } from 'lucide-react';
+import { Download, CheckCircle2, X, Calendar, FileText, Check, TrendingUp, ArrowRight, ArrowUpRight, ArrowDownRight, Layers, SlidersHorizontal, Trophy, Target, Award, CalendarDays, BarChart2, Copy, ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -226,6 +226,7 @@ export interface MonthWeekItem {
   shortLabel: string;
   daysCount: number;
   summary: PeriodSalesSummary;
+  days: DailySales[];
   targetL1: number;
   targetL2: number;
   targetL3: number;
@@ -266,6 +267,32 @@ export function computeMonthWeeks(salesData: DailySales[], yearMonth: string): M
     const daysCount = cfg.endDay - cfg.startDay + 1;
     const summary = computePeriodSummary(salesData, startDate, endDate);
 
+    // Build day-by-day continuous list for this week (e.g. 1-7, 8-14, 15-21, 22-lastDay)
+    const weekDays: DailySales[] = [];
+    for (let d = cfg.startDay; d <= cfg.endDay; d++) {
+      const dateStr = `${yearMonth}-${pad(d)}`;
+      const found = salesData.find(item => item.date === dateStr);
+      if (found) {
+        weekDays.push(found);
+      } else {
+        const dt = new Date(`${dateStr}T12:00:00Z`);
+        const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const dayOfWeek = dayNames[dt.getUTCDay()];
+        weekDays.push({
+          date: dateStr,
+          dayOfWeek,
+          totalAll: 0,
+          txAll: 0,
+          totalInstan: 0,
+          txInstan: 0,
+          totalReguler: 0,
+          txReguler: 0,
+          totalManual: 0,
+          txManual: 0
+        });
+      }
+    }
+
     // Target 150M, 175M, 200M (prorated for W4 if daysCount != 7)
     const targetMultiplier = daysCount === 7 ? 1 : daysCount / 7;
     const targetL1 = Math.round(150000000 * targetMultiplier);
@@ -303,6 +330,7 @@ export function computeMonthWeeks(salesData: DailySales[], yearMonth: string): M
       shortLabel: `${cfg.name} (${cfg.startDay}-${cfg.endDay})`,
       daysCount,
       summary,
+      days: weekDays,
       targetL1,
       targetL2,
       targetL3,
@@ -471,6 +499,9 @@ export default function SalesReportModal({
   const [weeklySelectionMode, setWeeklySelectionMode] = useState<'monthly-weeks' | 'preset' | 'custom'>('monthly-weeks');
   const [selectedMonthlyWeekMonth, setSelectedMonthlyWeekMonth] = useState<string>('');
   const [selectedMonthWeekSubMode, setSelectedMonthWeekSubMode] = useState<'all-4-weeks' | 'w1' | 'w2' | 'w3' | 'w4'>('all-4-weeks');
+  const [fourWeeksViewTab, setFourWeeksViewTab] = useState<'day-by-day' | 'summary' | 'calendar'>('day-by-day');
+  const [dayMetricFilter, setDayMetricFilter] = useState<'all' | 'sales' | 'tx' | 'instan' | 'reguler' | 'manual'>('all');
+  const [copySuccess, setCopySuccess] = useState<boolean>(false);
   const [selectedWeeklyDate, setSelectedWeeklyDate] = useState<string>('');
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -502,6 +533,121 @@ export default function SalesReportModal({
     const pad = (n: number) => String(n).padStart(2, '0');
     return computePeriodSummary(salesData, `${ym}-01`, `${ym}-${pad(lastDay)}`);
   }, [salesData, selectedMonthlyWeekMonth, availableMonths]);
+
+  // Day-by-day analysis and stats across the 4 weeks
+  const dayAnalysis = useMemo(() => {
+    if (!currentMonthWeeks || currentMonthWeeks.length < 4) return null;
+    const [w1, w2, w3, w4] = currentMonthWeeks;
+    
+    const winCounts = { w1: 0, w2: 0, w3: 0, w4: 0 };
+    let highestSingleDay = { week: 'Minggu I', date: '', amount: 0, dayOfWeek: '' };
+    const dayOfWeekTotals: { [key: string]: { total: number; count: number } } = {};
+
+    for (let i = 0; i < 7; i++) {
+      const d1 = w1?.days?.[i];
+      const d2 = w2?.days?.[i];
+      const d3 = w3?.days?.[i];
+      const d4 = w4?.days?.[i];
+      const s1 = d1?.totalAll || 0;
+      const s2 = d2?.totalAll || 0;
+      const s3 = d3?.totalAll || 0;
+      const s4 = d4?.totalAll || 0;
+
+      const maxS = Math.max(s1, s2, s3, s4);
+      if (maxS > 0) {
+        if (maxS === s4) winCounts.w4++;
+        else if (maxS === s3) winCounts.w3++;
+        else if (maxS === s2) winCounts.w2++;
+        else winCounts.w1++;
+      }
+
+      // Track highest single day
+      if (d1 && s1 > highestSingleDay.amount) highestSingleDay = { week: 'Minggu I', date: d1.date, amount: s1, dayOfWeek: d1.dayOfWeek };
+      if (d2 && s2 > highestSingleDay.amount) highestSingleDay = { week: 'Minggu II', date: d2.date, amount: s2, dayOfWeek: d2.dayOfWeek };
+      if (d3 && s3 > highestSingleDay.amount) highestSingleDay = { week: 'Minggu III', date: d3.date, amount: s3, dayOfWeek: d3.dayOfWeek };
+      if (d4 && s4 > highestSingleDay.amount) highestSingleDay = { week: 'Minggu IV', date: d4.date, amount: s4, dayOfWeek: d4.dayOfWeek };
+
+      // Group by day of week (e.g. Senin, Selasa...)
+      [d1, d2, d3, d4].forEach(d => {
+        if (d && d.dayOfWeek) {
+          if (!dayOfWeekTotals[d.dayOfWeek]) dayOfWeekTotals[d.dayOfWeek] = { total: 0, count: 0 };
+          dayOfWeekTotals[d.dayOfWeek].total += d.totalAll;
+          dayOfWeekTotals[d.dayOfWeek].count += 1;
+        }
+      });
+    }
+
+    // Extra days in W4
+    if (w4?.days && w4.days.length > 7) {
+      for (let i = 7; i < w4.days.length; i++) {
+        const d4 = w4.days[i];
+        if (d4 && d4.totalAll > highestSingleDay.amount) {
+          highestSingleDay = { week: 'Minggu IV', date: d4.date, amount: d4.totalAll, dayOfWeek: d4.dayOfWeek };
+        }
+      }
+    }
+
+    let busiestDayName = '';
+    let highestAvg = 0;
+    Object.keys(dayOfWeekTotals).forEach(dn => {
+      const avg = dayOfWeekTotals[dn].count > 0 ? dayOfWeekTotals[dn].total / dayOfWeekTotals[dn].count : 0;
+      if (avg > highestAvg) {
+        highestAvg = avg;
+        busiestDayName = dn;
+      }
+    });
+
+    return { winCounts, highestSingleDay, busiestDayName, highestAvg };
+  }, [currentMonthWeeks]);
+
+  // Copy Day-by-Day comparison table to clipboard (Excel / Sheets compatible TSV)
+  const handleCopyDayByDay = () => {
+    if (!currentMonthWeeks || currentMonthWeeks.length < 4) return;
+    const ym = selectedMonthlyWeekMonth || (availableMonths[0]?.yearMonth || '2026-09');
+    const [w1, w2, w3, w4] = currentMonthWeeks;
+
+    let tsv = `KOMPARASI HARIAN PENJUALAN PER MINGGU - BULAN ${formatMonthLabel(ym).toUpperCase()}\n`;
+    tsv += `Hari\tHari Kalender\tMinggu I (01-07) Tgl\tMinggu I Omzet\tMinggu I Tx\tMinggu II (08-14) Tgl\tMinggu II Omzet\tMinggu II Tx\tMinggu III (15-21) Tgl\tMinggu III Omzet\tMinggu III Tx\tMinggu IV (22-akhir) Tgl\tMinggu IV Omzet\tMinggu IV Tx\tPemenang Harian\n`;
+
+    for (let i = 0; i < 7; i++) {
+      const d1 = w1?.days?.[i];
+      const d2 = w2?.days?.[i];
+      const d3 = w3?.days?.[i];
+      const d4 = w4?.days?.[i];
+      const dayName = d1?.dayOfWeek || `Hari ${i + 1}`;
+      const maxS = Math.max(d1?.totalAll || 0, d2?.totalAll || 0, d3?.totalAll || 0, d4?.totalAll || 0);
+      let best = '-';
+      if (maxS > 0) {
+        if (maxS === d4?.totalAll) best = 'Minggu IV';
+        else if (maxS === d3?.totalAll) best = 'Minggu III';
+        else if (maxS === d2?.totalAll) best = 'Minggu II';
+        else best = 'Minggu I';
+      }
+
+      tsv += `Hari ${i + 1}\t${dayName}\t${d1?.date || '-'}\t${d1?.totalAll || 0}\t${d1?.txAll || 0}\t${d2?.date || '-'}\t${d2?.totalAll || 0}\t${d2?.txAll || 0}\t${d3?.date || '-'}\t${d3?.totalAll || 0}\t${d3?.txAll || 0}\t${d4?.date || '-'}\t${d4?.totalAll || 0}\t${d4?.txAll || 0}\t${best}\n`;
+    }
+
+    // Subtotal 7 hari
+    const sub1 = (w1?.days?.slice(0, 7) || []).reduce((a, b) => a + b.totalAll, 0);
+    const sub2 = (w2?.days?.slice(0, 7) || []).reduce((a, b) => a + b.totalAll, 0);
+    const sub3 = (w3?.days?.slice(0, 7) || []).reduce((a, b) => a + b.totalAll, 0);
+    const sub4 = (w4?.days?.slice(0, 7) || []).reduce((a, b) => a + b.totalAll, 0);
+    tsv += `Subtotal 7 Hari Pertama\t-\t-\t${sub1}\t-\t-\t${sub2}\t-\t-\t${sub3}\t-\t-\t${sub4}\t-\t-\n`;
+
+    // Extra days
+    if (w4?.days && w4.days.length > 7) {
+      for (let i = 7; i < w4.days.length; i++) {
+        const d4 = w4.days[i];
+        tsv += `Hari ${i + 1} (Ekstra W4)\t${d4?.dayOfWeek || '-'}\t-\t0\t0\t-\t0\t0\t-\t0\t0\t${d4?.date || '-'}\t${d4?.totalAll || 0}\t${d4?.txAll || 0}\tMinggu IV\n`;
+      }
+    }
+
+    tsv += `Total Keseluruhan Minggu\t-\t-\t${w1?.summary?.totalSales || 0}\t${w1?.summary?.totalTx || 0}\t-\t${w2?.summary?.totalSales || 0}\t${w2?.summary?.totalTx || 0}\t-\t${w3?.summary?.totalSales || 0}\t${w3?.summary?.totalTx || 0}\t-\t${w4?.summary?.totalSales || 0}\t${w4?.summary?.totalTx || 0}\t-\n`;
+
+    navigator.clipboard.writeText(tsv);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2500);
+  };
 
   // Available single dates
   const availableDates = useMemo(() => {
@@ -3638,202 +3784,848 @@ export default function SalesReportModal({
                             })}
                           </div>
 
-                          {/* Side-by-Side Comparison Matrix Table */}
-                          <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
-                            <div className="bg-slate-100/90 px-3.5 py-2 border-b border-slate-200 flex items-center justify-between">
-                              <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                                <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
-                                Matriks Komparasi 4 Minggu • {formatMonthLabel(selectedMonthlyWeekMonth || availableMonths[0]?.yearMonth)}
-                              </span>
-                              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                                Total: {formatRupiah(currentMonthTotalSummary.totalSales)}
-                              </span>
+                          {/* Sub-Tab Navigation inside 4-Weeks view */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1 border-t border-slate-200/70">
+                            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl border border-slate-200/80 overflow-x-auto">
+                              <button
+                                type="button"
+                                onClick={() => setFourWeeksViewTab('day-by-day')}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                                  fourWeeksViewTab === 'day-by-day'
+                                    ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/60'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                <CalendarDays className="w-3.5 h-3.5" />
+                                Komparasi Per Hari (01-07 vs 08-14 vs 15-21 vs 22-akhir)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFourWeeksViewTab('summary')}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                                  fourWeeksViewTab === 'summary'
+                                    ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/60'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                <TrendingUp className="w-3.5 h-3.5" />
+                                Matriks Ringkasan Mingguan
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFourWeeksViewTab('calendar')}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                                  fourWeeksViewTab === 'calendar'
+                                    ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/60'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                <Calendar className="w-3.5 h-3.5" />
+                                Kalender Lengkap 1 Bulan
+                              </button>
                             </div>
 
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-left text-[11px] border-collapse">
-                                <thead>
-                                  <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 uppercase tracking-wider font-bold">
-                                    <th className="py-2 px-3">Metrik Kinerja</th>
-                                    {currentMonthWeeks.map(wk => (
-                                      <th key={wk.key} className="py-2 px-2 text-right">
-                                        {wk.name} <span className="text-[9px] font-normal block text-slate-400">({wk.startDay}-{wk.endDay})</span>
-                                      </th>
-                                    ))}
-                                    <th className="py-2 px-3 text-right bg-indigo-50/50 text-indigo-950 font-black">Total Bulan</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                                  {/* Row 1: Omzet */}
-                                  <tr className="bg-indigo-50/30 font-bold">
-                                    <td className="py-2 px-3 text-indigo-950 font-black">Total Omzet Penjualan</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-indigo-700 font-black">
-                                        {formatRupiah(wk.summary.totalSales)}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right font-mono text-indigo-900 font-black bg-indigo-50/50">
-                                      {formatRupiah(currentMonthTotalSummary.totalSales)}
-                                    </td>
-                                  </tr>
-
-                                  {/* Row 2: Growth vs Prev */}
-                                  <tr>
-                                    <td className="py-2 px-3 text-slate-500 font-semibold">Pertumbuhan vs Minggu Sblm</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right font-bold text-[10.5px]">
-                                        {wk.growthSalesVsPrev ? (
-                                          <span className={wk.growthSalesVsPrev.startsWith('+') ? 'text-emerald-700' : 'text-rose-700'}>
-                                            {wk.growthSalesVsPrev}
-                                          </span>
-                                        ) : (
-                                          <span className="text-slate-300">-</span>
-                                        )}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right text-slate-400 bg-indigo-50/50">-</td>
-                                  </tr>
-
-                                  {/* Row 3: Transaksi */}
-                                  <tr>
-                                    <td className="py-2 px-3">Total Transaksi (Orders)</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right font-mono">
-                                        {formatNumberIndo(wk.summary.totalTx)}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
-                                      {formatNumberIndo(currentMonthTotalSummary.totalTx)}
-                                    </td>
-                                  </tr>
-
-                                  {/* Row 4: AOV */}
-                                  <tr>
-                                    <td className="py-2 px-3">Rata-rata Order (AOV)</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
-                                        {formatRupiah(wk.summary.aov)}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right font-mono text-slate-700 font-bold bg-indigo-50/50">
-                                      {formatRupiah(currentMonthTotalSummary.aov)}
-                                    </td>
-                                  </tr>
-
-                                  {/* Row 5: Penjualan Instan */}
-                                  <tr>
-                                    <td className="py-2 px-3">Penjualan Instan</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
-                                        {formatRupiah(wk.summary.totalInstan)}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
-                                      {formatRupiah(currentMonthTotalSummary.totalInstan)}
-                                    </td>
-                                  </tr>
-
-                                  {/* Row 6: Penjualan Reguler */}
-                                  <tr>
-                                    <td className="py-2 px-3">Penjualan Reguler</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
-                                        {formatRupiah(wk.summary.totalReguler)}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
-                                      {formatRupiah(currentMonthTotalSummary.totalReguler)}
-                                    </td>
-                                  </tr>
-
-                                  {/* Row 7: Penjualan Manual */}
-                                  <tr>
-                                    <td className="py-2 px-3">Penjualan Manual</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
-                                        {formatRupiah(wk.summary.totalManual)}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
-                                      {formatRupiah(currentMonthTotalSummary.totalManual)}
-                                    </td>
-                                  </tr>
-
-                                  {/* Target Level 1 */}
-                                  <tr className="bg-amber-50/30">
-                                    <td className="py-2 px-3 font-bold text-amber-900">Target Level 1 (150M)</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
-                                        {wk.summary.totalSales >= wk.targetL1 ? (
-                                          <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
-                                        ) : (
-                                          <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(wk.neededL1)} lagi</span>
-                                        )}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
-                                      {currentMonthTotalSummary.totalSales >= 600000000 ? (
-                                        <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
-                                      ) : (
-                                        <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(600000000 - currentMonthTotalSummary.totalSales)} lagi</span>
-                                      )}
-                                    </td>
-                                  </tr>
-
-                                  {/* Target Level 2 */}
-                                  <tr className="bg-slate-50/60">
-                                    <td className="py-2 px-3 font-bold text-slate-800">Target Level 2 (175M)</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
-                                        {wk.summary.totalSales >= wk.targetL2 ? (
-                                          <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
-                                        ) : (
-                                          <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(wk.neededL2)} lagi</span>
-                                        )}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
-                                      {currentMonthTotalSummary.totalSales >= 700000000 ? (
-                                        <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
-                                      ) : (
-                                        <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(700000000 - currentMonthTotalSummary.totalSales)} lagi</span>
-                                      )}
-                                    </td>
-                                  </tr>
-
-                                  {/* Target Level 3 */}
-                                  <tr className="bg-amber-50/40">
-                                    <td className="py-2 px-3 font-bold text-indigo-950">Target Level 3 (200M)</td>
-                                    {currentMonthWeeks.map(wk => (
-                                      <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
-                                        {wk.summary.totalSales >= wk.targetL3 ? (
-                                          <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
-                                        ) : (
-                                          <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(wk.neededL3)} lagi</span>
-                                        )}
-                                      </td>
-                                    ))}
-                                    <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
-                                      {currentMonthTotalSummary.totalSales >= 800000000 ? (
-                                        <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
-                                      ) : (
-                                        <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(800000000 - currentMonthTotalSummary.totalSales)} lagi</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
+                            {fourWeeksViewTab === 'day-by-day' && (
+                              <button
+                                type="button"
+                                onClick={handleCopyDayByDay}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs self-start sm:self-auto cursor-pointer ${
+                                  copySuccess
+                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                                }`}
+                                title="Salin data tabel komparasi harian ke clipboard format TSV (kompatibel Google Sheets / Excel)"
+                              >
+                                {copySuccess ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-500" />}
+                                {copySuccess ? 'Tersalin ke Clipboard!' : 'Salin Tabel (Excel / Sheets)'}
+                              </button>
+                            )}
                           </div>
+
+                          {/* TAB 1: KOMPARASI RINCIAN PER HARI (DAY-BY-DAY COMPARISON) */}
+                          {fourWeeksViewTab === 'day-by-day' && (
+                            <div className="space-y-3">
+                              {/* Filter metrik harian */}
+                              <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
+                                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mr-1">Metrik Tampilan:</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDayMetricFilter('all')}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                      dayMetricFilter === 'all'
+                                        ? 'bg-indigo-600 text-white shadow-2xs'
+                                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    Semua Metrik
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDayMetricFilter('sales')}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                      dayMetricFilter === 'sales'
+                                        ? 'bg-indigo-600 text-white shadow-2xs'
+                                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    💰 Omzet (Rp)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDayMetricFilter('tx')}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                      dayMetricFilter === 'tx'
+                                        ? 'bg-indigo-600 text-white shadow-2xs'
+                                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    📦 Transaksi (Tx)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDayMetricFilter('instan')}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                      dayMetricFilter === 'instan'
+                                        ? 'bg-amber-600 text-white shadow-2xs'
+                                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    ⚡ Instan
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDayMetricFilter('reguler')}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                      dayMetricFilter === 'reguler'
+                                        ? 'bg-sky-600 text-white shadow-2xs'
+                                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    🚚 Reguler
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDayMetricFilter('manual')}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                      dayMetricFilter === 'manual'
+                                        ? 'bg-emerald-600 text-white shadow-2xs'
+                                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    📝 Manual
+                                  </button>
+                                </div>
+
+                                <span className="text-[10px] text-slate-400 font-semibold italic">
+                                  Membandingkan Hari ke-1 s/d Hari ke-7 di setiap minggu
+                                </span>
+                              </div>
+
+                              {/* Day-by-day table */}
+                              <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
+                                <div className="bg-slate-100/90 px-3.5 py-2 border-b border-slate-200 flex items-center justify-between">
+                                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                    <CalendarDays className="w-3.5 h-3.5 text-indigo-600" />
+                                    Tabel Komparasi Rincian Per Hari • {formatMonthLabel(selectedMonthlyWeekMonth || availableMonths[0]?.yearMonth)}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                    Minggu I (01-07) • Minggu II (08-14) • Minggu III (15-21) • Minggu IV (22-akhir)
+                                  </span>
+                                </div>
+
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-left text-[11px] border-collapse">
+                                    <thead>
+                                      <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 uppercase tracking-wider font-bold">
+                                        <th className="py-2.5 px-3">Hari & Kalender</th>
+                                        <th className="py-2.5 px-2 text-right bg-indigo-50/40 text-indigo-950 font-black">
+                                          Minggu I <span className="text-[9px] font-normal block text-indigo-600/70">(01 - 07)</span>
+                                        </th>
+                                        <th className="py-2.5 px-2 text-right bg-sky-50/40 text-sky-950 font-black">
+                                          Minggu II <span className="text-[9px] font-normal block text-sky-600/70">(08 - 14)</span>
+                                        </th>
+                                        <th className="py-2.5 px-2 text-right bg-amber-50/40 text-amber-950 font-black">
+                                          Minggu III <span className="text-[9px] font-normal block text-amber-600/70">(15 - 21)</span>
+                                        </th>
+                                        <th className="py-2.5 px-2 text-right bg-emerald-50/40 text-emerald-950 font-black">
+                                          Minggu IV <span className="text-[9px] font-normal block text-emerald-600/70">(22 - akhir)</span>
+                                        </th>
+                                        <th className="py-2.5 px-3 text-center bg-slate-50 text-slate-600 font-bold">
+                                          Pemenang Harian
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                                      {Array.from({ length: 7 }).map((_, dayIdx) => {
+                                        const w1 = currentMonthWeeks[0];
+                                        const w2 = currentMonthWeeks[1];
+                                        const w3 = currentMonthWeeks[2];
+                                        const w4 = currentMonthWeeks[3];
+
+                                        const d1 = w1?.days?.[dayIdx];
+                                        const d2 = w2?.days?.[dayIdx];
+                                        const d3 = w3?.days?.[dayIdx];
+                                        const d4 = w4?.days?.[dayIdx];
+
+                                        const dayName = d1?.dayOfWeek || `Hari ${dayIdx + 1}`;
+                                        const s1 = d1?.totalAll || 0;
+                                        const s2 = d2?.totalAll || 0;
+                                        const s3 = d3?.totalAll || 0;
+                                        const s4 = d4?.totalAll || 0;
+
+                                        const tx1 = d1?.txAll || 0;
+                                        const tx2 = d2?.txAll || 0;
+                                        const tx3 = d3?.txAll || 0;
+                                        const tx4 = d4?.txAll || 0;
+
+                                        const growth2 = formatGrowthPct(s2, s1);
+                                        const growth3 = formatGrowthPct(s3, s2);
+                                        const growth4 = formatGrowthPct(s4, s3);
+
+                                        const maxS = Math.max(s1, s2, s3, s4);
+                                        let bestWeekLabel = '-';
+                                        let bestAmount = 0;
+                                        if (maxS > 0) {
+                                          if (maxS === s4) { bestWeekLabel = 'Minggu IV'; bestAmount = s4; }
+                                          else if (maxS === s3) { bestWeekLabel = 'Minggu III'; bestAmount = s3; }
+                                          else if (maxS === s2) { bestWeekLabel = 'Minggu II'; bestAmount = s2; }
+                                          else { bestWeekLabel = 'Minggu I'; bestAmount = s1; }
+                                        }
+
+                                        return (
+                                          <tr key={dayIdx} className="hover:bg-slate-50/80 transition-colors">
+                                            {/* Hari */}
+                                            <td className="py-2 px-3">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="w-5 h-5 rounded-full bg-slate-200/80 text-slate-700 text-[10px] font-black flex items-center justify-center shrink-0">
+                                                  {dayIdx + 1}
+                                                </span>
+                                                <div>
+                                                  <span className="font-black text-slate-800 text-[11px] block">{dayName}</span>
+                                                  <span className="text-[9px] text-slate-400 font-semibold block">
+                                                    Tgl {d1?.date.slice(-2)} • {d2?.date.slice(-2)} • {d3?.date.slice(-2)} • {d4?.date.slice(-2)}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </td>
+
+                                            {/* W1 */}
+                                            <td className={`py-2 px-2 text-right bg-indigo-50/20 ${maxS > 0 && maxS === s1 ? 'font-bold bg-amber-50/40' : ''}`}>
+                                              {dayMetricFilter === 'all' && (
+                                                <div>
+                                                  <span className="font-mono font-black text-indigo-900 block text-[11px]">{formatRupiah(s1)}</span>
+                                                  <span className="text-[9.5px] text-slate-500 block">{formatNumberIndo(tx1)} tx</span>
+                                                  <div className="text-[8.5px] text-slate-400 mt-0.5 space-x-1 font-mono">
+                                                    <span>⚡{formatRupiahCompact(d1?.totalInstan || 0)}</span>
+                                                    <span>🚚{formatRupiahCompact(d1?.totalReguler || 0)}</span>
+                                                  </div>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'sales' && (
+                                                <span className="font-mono font-black text-indigo-900">{formatRupiah(s1)}</span>
+                                              )}
+                                              {dayMetricFilter === 'tx' && (
+                                                <span className="font-mono font-bold text-slate-800">{formatNumberIndo(tx1)} tx</span>
+                                              )}
+                                              {dayMetricFilter === 'instan' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-amber-800 block">{formatRupiah(d1?.totalInstan || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d1?.txInstan || 0} tx</span>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'reguler' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-sky-800 block">{formatRupiah(d1?.totalReguler || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d1?.txReguler || 0} tx</span>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'manual' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-emerald-800 block">{formatRupiah(d1?.totalManual || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d1?.txManual || 0} tx</span>
+                                                </div>
+                                              )}
+                                            </td>
+
+                                            {/* W2 */}
+                                            <td className={`py-2 px-2 text-right bg-sky-50/20 ${maxS > 0 && maxS === s2 ? 'font-bold bg-amber-50/40' : ''}`}>
+                                              {dayMetricFilter === 'all' && (
+                                                <div>
+                                                  <span className="font-mono font-black text-sky-900 block text-[11px]">{formatRupiah(s2)}</span>
+                                                  <div className="flex items-center justify-end gap-1">
+                                                    <span className="text-[9.5px] text-slate-500">{formatNumberIndo(tx2)} tx</span>
+                                                    {s1 > 0 && (
+                                                      <span className={`text-[8.5px] font-bold px-1 rounded ${growth2.startsWith('+') ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'}`}>
+                                                        {growth2}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  <div className="text-[8.5px] text-slate-400 mt-0.5 space-x-1 font-mono">
+                                                    <span>⚡{formatRupiahCompact(d2?.totalInstan || 0)}</span>
+                                                    <span>🚚{formatRupiahCompact(d2?.totalReguler || 0)}</span>
+                                                  </div>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'sales' && (
+                                                <div>
+                                                  <span className="font-mono font-black text-sky-900 block">{formatRupiah(s2)}</span>
+                                                  {s1 > 0 && (
+                                                    <span className={`text-[8.5px] font-bold ${growth2.startsWith('+') ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                                      vs W1: {growth2}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'tx' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-slate-800 block">{formatNumberIndo(tx2)} tx</span>
+                                                  {tx1 > 0 && (
+                                                    <span className="text-[8.5px] text-slate-400">vs W1: {formatGrowthPct(tx2, tx1)}</span>
+                                                  )}
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'instan' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-amber-800 block">{formatRupiah(d2?.totalInstan || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d2?.txInstan || 0} tx</span>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'reguler' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-sky-800 block">{formatRupiah(d2?.totalReguler || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d2?.txReguler || 0} tx</span>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'manual' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-emerald-800 block">{formatRupiah(d2?.totalManual || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d2?.txManual || 0} tx</span>
+                                                </div>
+                                              )}
+                                            </td>
+
+                                            {/* W3 */}
+                                            <td className={`py-2 px-2 text-right bg-amber-50/20 ${maxS > 0 && maxS === s3 ? 'font-bold bg-amber-50/40' : ''}`}>
+                                              {dayMetricFilter === 'all' && (
+                                                <div>
+                                                  <span className="font-mono font-black text-amber-950 block text-[11px]">{formatRupiah(s3)}</span>
+                                                  <div className="flex items-center justify-end gap-1">
+                                                    <span className="text-[9.5px] text-slate-500">{formatNumberIndo(tx3)} tx</span>
+                                                    {s2 > 0 && (
+                                                      <span className={`text-[8.5px] font-bold px-1 rounded ${growth3.startsWith('+') ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'}`}>
+                                                        {growth3}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  <div className="text-[8.5px] text-slate-400 mt-0.5 space-x-1 font-mono">
+                                                    <span>⚡{formatRupiahCompact(d3?.totalInstan || 0)}</span>
+                                                    <span>🚚{formatRupiahCompact(d3?.totalReguler || 0)}</span>
+                                                  </div>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'sales' && (
+                                                <div>
+                                                  <span className="font-mono font-black text-amber-950 block">{formatRupiah(s3)}</span>
+                                                  {s2 > 0 && (
+                                                    <span className={`text-[8.5px] font-bold ${growth3.startsWith('+') ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                                      vs W2: {growth3}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'tx' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-slate-800 block">{formatNumberIndo(tx3)} tx</span>
+                                                  {tx2 > 0 && (
+                                                    <span className="text-[8.5px] text-slate-400">vs W2: {formatGrowthPct(tx3, tx2)}</span>
+                                                  )}
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'instan' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-amber-800 block">{formatRupiah(d3?.totalInstan || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d3?.txInstan || 0} tx</span>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'reguler' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-sky-800 block">{formatRupiah(d3?.totalReguler || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d3?.txReguler || 0} tx</span>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'manual' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-emerald-800 block">{formatRupiah(d3?.totalManual || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d3?.txManual || 0} tx</span>
+                                                </div>
+                                              )}
+                                            </td>
+
+                                            {/* W4 */}
+                                            <td className={`py-2 px-2 text-right bg-emerald-50/20 ${maxS > 0 && maxS === s4 ? 'font-bold bg-amber-50/40' : ''}`}>
+                                              {dayMetricFilter === 'all' && (
+                                                <div>
+                                                  <span className="font-mono font-black text-emerald-950 block text-[11px]">{formatRupiah(s4)}</span>
+                                                  <div className="flex items-center justify-end gap-1">
+                                                    <span className="text-[9.5px] text-slate-500">{formatNumberIndo(tx4)} tx</span>
+                                                    {s3 > 0 && (
+                                                      <span className={`text-[8.5px] font-bold px-1 rounded ${growth4.startsWith('+') ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'}`}>
+                                                        {growth4}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  <div className="text-[8.5px] text-slate-400 mt-0.5 space-x-1 font-mono">
+                                                    <span>⚡{formatRupiahCompact(d4?.totalInstan || 0)}</span>
+                                                    <span>🚚{formatRupiahCompact(d4?.totalReguler || 0)}</span>
+                                                  </div>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'sales' && (
+                                                <div>
+                                                  <span className="font-mono font-black text-emerald-950 block">{formatRupiah(s4)}</span>
+                                                  {s3 > 0 && (
+                                                    <span className={`text-[8.5px] font-bold ${growth4.startsWith('+') ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                                      vs W3: {growth4}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'tx' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-slate-800 block">{formatNumberIndo(tx4)} tx</span>
+                                                  {tx3 > 0 && (
+                                                    <span className="text-[8.5px] text-slate-400">vs W3: {formatGrowthPct(tx4, tx3)}</span>
+                                                  )}
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'instan' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-amber-800 block">{formatRupiah(d4?.totalInstan || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d4?.txInstan || 0} tx</span>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'reguler' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-sky-800 block">{formatRupiah(d4?.totalReguler || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d4?.txReguler || 0} tx</span>
+                                                </div>
+                                              )}
+                                              {dayMetricFilter === 'manual' && (
+                                                <div>
+                                                  <span className="font-mono font-bold text-emerald-800 block">{formatRupiah(d4?.totalManual || 0)}</span>
+                                                  <span className="text-[9px] text-slate-400">{d4?.txManual || 0} tx</span>
+                                                </div>
+                                              )}
+                                            </td>
+
+                                            {/* Winner */}
+                                            <td className="py-2 px-3 text-center">
+                                              {maxS > 0 ? (
+                                                <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                                                  👑 {bestWeekLabel}
+                                                </span>
+                                              ) : (
+                                                <span className="text-slate-300">-</span>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+
+                                      {/* Row: Subtotal 7 Hari Pertama (Fair 7-Day Comparison) */}
+                                      {(() => {
+                                        const w1 = currentMonthWeeks[0];
+                                        const w2 = currentMonthWeeks[1];
+                                        const w3 = currentMonthWeeks[2];
+                                        const w4 = currentMonthWeeks[3];
+
+                                        const sub1 = (w1?.days?.slice(0, 7) || []).reduce((a, b) => a + b.totalAll, 0);
+                                        const sub2 = (w2?.days?.slice(0, 7) || []).reduce((a, b) => a + b.totalAll, 0);
+                                        const sub3 = (w3?.days?.slice(0, 7) || []).reduce((a, b) => a + b.totalAll, 0);
+                                        const sub4 = (w4?.days?.slice(0, 7) || []).reduce((a, b) => a + b.totalAll, 0);
+
+                                        const txSub1 = (w1?.days?.slice(0, 7) || []).reduce((a, b) => a + b.txAll, 0);
+                                        const txSub2 = (w2?.days?.slice(0, 7) || []).reduce((a, b) => a + b.txAll, 0);
+                                        const txSub3 = (w3?.days?.slice(0, 7) || []).reduce((a, b) => a + b.txAll, 0);
+                                        const txSub4 = (w4?.days?.slice(0, 7) || []).reduce((a, b) => a + b.txAll, 0);
+
+                                        return (
+                                          <tr className="bg-indigo-50/50 font-black border-t-2 border-indigo-200 text-indigo-950">
+                                            <td className="py-2.5 px-3">
+                                              <span className="text-xs uppercase tracking-wider block">Subtotal 7 Hari Pertama</span>
+                                              <span className="text-[9px] font-normal text-indigo-700 block">(Perbandingan adil 7 hari: Hari 1 s/d Hari 7)</span>
+                                            </td>
+                                            <td className="py-2.5 px-2 text-right font-mono">
+                                              <span className="block text-xs">{formatRupiah(sub1)}</span>
+                                              <span className="text-[9.5px] font-semibold text-slate-500">{formatNumberIndo(txSub1)} tx</span>
+                                            </td>
+                                            <td className="py-2.5 px-2 text-right font-mono">
+                                              <span className="block text-xs">{formatRupiah(sub2)}</span>
+                                              <span className="text-[9.5px] font-semibold text-slate-500">{formatNumberIndo(txSub2)} tx</span>
+                                            </td>
+                                            <td className="py-2.5 px-2 text-right font-mono">
+                                              <span className="block text-xs">{formatRupiah(sub3)}</span>
+                                              <span className="text-[9.5px] font-semibold text-slate-500">{formatNumberIndo(txSub3)} tx</span>
+                                            </td>
+                                            <td className="py-2.5 px-2 text-right font-mono">
+                                              <span className="block text-xs">{formatRupiah(sub4)}</span>
+                                              <span className="text-[9.5px] font-semibold text-slate-500">{formatNumberIndo(txSub4)} tx</span>
+                                            </td>
+                                            <td className="py-2.5 px-3 text-center text-[10px] font-bold text-indigo-700">
+                                              7 Hari
+                                            </td>
+                                          </tr>
+                                        );
+                                      })()}
+
+                                      {/* Extra Days of Minggu IV (Hari ke-8, 9, 10 / Tgl 29, 30, 31) */}
+                                      {(() => {
+                                        const w4 = currentMonthWeeks[3];
+                                        if (!w4 || !w4.days || w4.days.length <= 7) return null;
+
+                                        return w4.days.slice(7).map((d4, idx) => {
+                                          const dayNumber = 8 + idx;
+                                          return (
+                                            <tr key={`extra-${idx}`} className="bg-emerald-50/30 text-slate-600 border-t border-dashed border-emerald-200">
+                                              <td className="py-2 px-3">
+                                                <div className="flex items-center gap-1.5">
+                                                  <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black flex items-center justify-center shrink-0">
+                                                    {dayNumber}
+                                                  </span>
+                                                  <div>
+                                                    <span className="font-bold text-slate-800 text-[11px] block">
+                                                      {d4.dayOfWeek} (Tgl {d4.date.slice(-2)})
+                                                    </span>
+                                                    <span className="text-[9px] text-emerald-700 font-semibold block">
+                                                      Hari Ekstra Minggu IV Akhir Bulan
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                              </td>
+                                              <td className="py-2 px-2 text-right text-slate-300 font-mono text-[10px]">-</td>
+                                              <td className="py-2 px-2 text-right text-slate-300 font-mono text-[10px]">-</td>
+                                              <td className="py-2 px-2 text-right text-slate-300 font-mono text-[10px]">-</td>
+                                              <td className="py-2 px-2 text-right bg-emerald-50/40">
+                                                <span className="font-mono font-black text-emerald-950 block text-[11px]">{formatRupiah(d4.totalAll)}</span>
+                                                <span className="text-[9.5px] text-slate-500 block">{formatNumberIndo(d4.txAll)} tx</span>
+                                              </td>
+                                              <td className="py-2 px-3 text-center">
+                                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                                  Minggu IV Ekstra
+                                                </span>
+                                              </td>
+                                            </tr>
+                                          );
+                                        });
+                                      })()}
+
+                                      {/* Row: Total Keseluruhan Minggu */}
+                                      <tr className="bg-slate-100 font-black border-t-2 border-slate-300 text-slate-900">
+                                        <td className="py-3 px-3">
+                                          <span className="text-xs uppercase tracking-wider block">Total Keseluruhan Minggu</span>
+                                          <span className="text-[9px] font-normal text-slate-500 block">Akumulasi seluruh hari aktif dalam masing-masing minggu</span>
+                                        </td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-3 px-2 text-right font-mono">
+                                            <span className="block text-xs font-black text-indigo-950">{formatRupiah(wk.summary.totalSales)}</span>
+                                            <span className="text-[9.5px] font-bold text-slate-500">{formatNumberIndo(wk.summary.totalTx)} tx</span>
+                                            <span className="text-[8.5px] text-slate-400 block">({wk.daysCount} hari)</span>
+                                          </td>
+                                        ))}
+                                        <td className="py-3 px-3 text-center">
+                                          <span className="text-[10px] font-black uppercase text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-100">
+                                            Total 1 Bulan
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+
+                              {/* Daily insights callout */}
+                              {dayAnalysis && (
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                                  <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-1">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 flex items-center gap-1">
+                                      <Sparkles className="w-3.5 h-3.5" /> Rata-rata Hari Teramai
+                                    </span>
+                                    <p className="font-bold text-indigo-950 text-[11.5px]">
+                                      Hari {dayAnalysis.busiestDayName}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500">
+                                      Rata-rata omzet: {formatRupiah(dayAnalysis.highestAvg)} per {dayAnalysis.busiestDayName}
+                                    </p>
+                                  </div>
+
+                                  <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl space-y-1">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 flex items-center gap-1">
+                                      <Trophy className="w-3.5 h-3.5" /> Rekor Harian Tertinggi
+                                    </span>
+                                    <p className="font-bold text-emerald-950 text-[11.5px]">
+                                      {formatRupiah(dayAnalysis.highestSingleDay.amount)}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500">
+                                      {dayAnalysis.highestSingleDay.dayOfWeek}, {dayAnalysis.highestSingleDay.date} ({dayAnalysis.highestSingleDay.week})
+                                    </p>
+                                  </div>
+
+                                  <div className="p-3 bg-amber-50/70 border border-amber-100 rounded-xl space-y-1">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 flex items-center gap-1">
+                                      <Target className="w-3.5 h-3.5" /> Dominasi Pemenang Harian
+                                    </span>
+                                    <p className="font-bold text-amber-950 text-[11px]">
+                                      W1: {dayAnalysis.winCounts.w1} hari • W2: {dayAnalysis.winCounts.w2} hari
+                                    </p>
+                                    <p className="text-[10px] text-slate-500">
+                                      W3: {dayAnalysis.winCounts.w3} hari • W4: {dayAnalysis.winCounts.w4} hari
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* TAB 2: MATRIKS RINGKASAN MINGGUAN (WEEKLY SUMMARY MATRIX) */}
+                          {fourWeeksViewTab === 'summary' && (
+                            <div className="space-y-3">
+                              <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
+                                <div className="bg-slate-100/90 px-3.5 py-2 border-b border-slate-200 flex items-center justify-between">
+                                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                    <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+                                    Matriks Komparasi 4 Minggu • {formatMonthLabel(selectedMonthlyWeekMonth || availableMonths[0]?.yearMonth)}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                    Total: {formatRupiah(currentMonthTotalSummary.totalSales)}
+                                  </span>
+                                </div>
+
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-left text-[11px] border-collapse">
+                                    <thead>
+                                      <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 uppercase tracking-wider font-bold">
+                                        <th className="py-2 px-3">Metrik Kinerja</th>
+                                        {currentMonthWeeks.map(wk => (
+                                          <th key={wk.key} className="py-2 px-2 text-right">
+                                            {wk.name} <span className="text-[9px] font-normal block text-slate-400">({wk.startDay}-{wk.endDay})</span>
+                                          </th>
+                                        ))}
+                                        <th className="py-2 px-3 text-right bg-indigo-50/50 text-indigo-950 font-black">Total Bulan</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                                      {/* Row 1: Omzet */}
+                                      <tr className="bg-indigo-50/30 font-bold">
+                                        <td className="py-2 px-3 text-indigo-950 font-black">Total Omzet Penjualan</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right font-mono text-indigo-700 font-black">
+                                            {formatRupiah(wk.summary.totalSales)}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right font-mono text-indigo-900 font-black bg-indigo-50/50">
+                                          {formatRupiah(currentMonthTotalSummary.totalSales)}
+                                        </td>
+                                      </tr>
+
+                                      {/* Row 2: Growth vs Prev */}
+                                      <tr>
+                                        <td className="py-2 px-3 text-slate-500 font-semibold">Pertumbuhan vs Minggu Sblm</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right font-bold text-[10.5px]">
+                                            {wk.growthSalesVsPrev ? (
+                                              <span className={wk.growthSalesVsPrev.startsWith('+') ? 'text-emerald-700' : 'text-rose-700'}>
+                                                {wk.growthSalesVsPrev}
+                                              </span>
+                                            ) : (
+                                              <span className="text-slate-300">-</span>
+                                            )}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right text-slate-400 bg-indigo-50/50">-</td>
+                                      </tr>
+
+                                      {/* Row 3: Transaksi */}
+                                      <tr>
+                                        <td className="py-2 px-3">Total Transaksi (Orders)</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right font-mono">
+                                            {formatNumberIndo(wk.summary.totalTx)}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
+                                          {formatNumberIndo(currentMonthTotalSummary.totalTx)}
+                                        </td>
+                                      </tr>
+
+                                      {/* Row 4: AOV */}
+                                      <tr>
+                                        <td className="py-2 px-3">Rata-rata Order (AOV)</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
+                                            {formatRupiah(wk.summary.aov)}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right font-mono text-slate-700 font-bold bg-indigo-50/50">
+                                          {formatRupiah(currentMonthTotalSummary.aov)}
+                                        </td>
+                                      </tr>
+
+                                      {/* Row 5: Penjualan Instan */}
+                                      <tr>
+                                        <td className="py-2 px-3">Penjualan Instan</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
+                                            {formatRupiah(wk.summary.totalInstan)}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
+                                          {formatRupiah(currentMonthTotalSummary.totalInstan)}
+                                        </td>
+                                      </tr>
+
+                                      {/* Row 6: Penjualan Reguler */}
+                                      <tr>
+                                        <td className="py-2 px-3">Penjualan Reguler</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
+                                            {formatRupiah(wk.summary.totalReguler)}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
+                                          {formatRupiah(currentMonthTotalSummary.totalReguler)}
+                                        </td>
+                                      </tr>
+
+                                      {/* Row 7: Penjualan Manual */}
+                                      <tr>
+                                        <td className="py-2 px-3">Penjualan Manual</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right font-mono text-slate-600">
+                                            {formatRupiah(wk.summary.totalManual)}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/50">
+                                          {formatRupiah(currentMonthTotalSummary.totalManual)}
+                                        </td>
+                                      </tr>
+
+                                      {/* Target Level 1 */}
+                                      <tr className="bg-amber-50/30">
+                                        <td className="py-2 px-3 font-bold text-amber-900">Target Level 1 (150M)</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
+                                            {wk.summary.totalSales >= wk.targetL1 ? (
+                                              <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                            ) : (
+                                              <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(wk.neededL1)} lagi</span>
+                                            )}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
+                                          {currentMonthTotalSummary.totalSales >= 600000000 ? (
+                                            <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                          ) : (
+                                            <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(600000000 - currentMonthTotalSummary.totalSales)} lagi</span>
+                                          )}
+                                        </td>
+                                      </tr>
+
+                                      {/* Target Level 2 */}
+                                      <tr className="bg-slate-50/60">
+                                        <td className="py-2 px-3 font-bold text-slate-800">Target Level 2 (175M)</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
+                                            {wk.summary.totalSales >= wk.targetL2 ? (
+                                              <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                            ) : (
+                                              <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(wk.neededL2)} lagi</span>
+                                            )}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
+                                          {currentMonthTotalSummary.totalSales >= 700000000 ? (
+                                            <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                          ) : (
+                                            <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(700000000 - currentMonthTotalSummary.totalSales)} lagi</span>
+                                          )}
+                                        </td>
+                                      </tr>
+
+                                      {/* Target Level 3 */}
+                                      <tr className="bg-amber-50/40">
+                                        <td className="py-2 px-3 font-bold text-indigo-950">Target Level 3 (200M)</td>
+                                        {currentMonthWeeks.map(wk => (
+                                          <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
+                                            {wk.summary.totalSales >= wk.targetL3 ? (
+                                              <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                            ) : (
+                                              <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(wk.neededL3)} lagi</span>
+                                            )}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
+                                          {currentMonthTotalSummary.totalSales >= 800000000 ? (
+                                            <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
+                                          ) : (
+                                            <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(800000000 - currentMonthTotalSummary.totalSales)} lagi</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* TAB 3: KALENDER LENGKAP 1 BULAN (FULL MONTH CALENDAR) */}
+                          {fourWeeksViewTab === 'calendar' && (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {currentMonthWeeks.map((wk) => (
+                                  <div key={wk.key} className="border border-slate-200 rounded-2xl p-3.5 bg-white space-y-2 shadow-2xs">
+                                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                      <div>
+                                        <span className="font-black text-slate-800 text-xs">{wk.name}</span>
+                                        <span className="text-[10px] text-slate-400 font-semibold block">
+                                          Tanggal {String(wk.startDay).padStart(2, '0')} s/d {String(wk.endDay).padStart(2, '0')} ({wk.daysCount} Hari)
+                                        </span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="font-mono font-black text-indigo-600 text-xs block">{formatRupiah(wk.summary.totalSales)}</span>
+                                        <span className="text-[9.5px] text-slate-500 font-bold">{formatNumberIndo(wk.summary.totalTx)} tx</span>
+                                      </div>
+                                    </div>
+
+                                    <div className="divide-y divide-slate-100 text-[10.5px]">
+                                      {wk.days.map((d) => (
+                                        <div key={d.date} className="py-1.5 flex items-center justify-between hover:bg-slate-50 px-1 rounded transition-colors">
+                                          <div className="flex items-center gap-2">
+                                            <span className="w-5 text-[10px] font-mono text-slate-400 font-bold">{d.date.slice(-2)}</span>
+                                            <span className="font-bold text-slate-700">{d.dayOfWeek}</span>
+                                          </div>
+                                          <div className="flex items-center gap-3 font-mono">
+                                            <span className="font-bold text-slate-800">{formatRupiah(d.totalAll)}</span>
+                                            <span className="text-slate-400 text-[9.5px] w-12 text-right">{d.txAll} tx</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
 
                           {/* Action Button for 4-Weeks Dedicated PDF */}
                           <div className="bg-linear-to-r from-indigo-50 via-slate-50 to-indigo-50 border border-indigo-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
                             <div className="space-y-0.5">
                               <h5 className="text-xs font-black text-indigo-950 uppercase tracking-wide">
-                                Cetak Laporan PDF Komparasi 4 Minggu
+                                Cetak Laporan PDF Komparasi 4 Minggu &amp; Rincian Harian
                               </h5>
                               <p className="text-[10.5px] text-slate-500 font-semibold">
-                                Menghasilkan PDF 2 halaman lengkap dengan matriks komparasi side-by-side W1-W4, evaluasi target, dan rincian produk SKU terlaris.
+                                Menghasilkan dokumen PDF 3 halaman lengkap mencakup Matriks Komparasi 4 Minggu, Komparasi Rincian Per Hari (Day-by-Day), Evaluasi Target, dan Analisis Produk SKU Terlaris.
                               </p>
                             </div>
 
@@ -3850,9 +4642,196 @@ export default function SalesReportModal({
                         </div>
                       ) : (
                         /* View B: Single Week inspected in Monthly-Weeks mode */
-                        <div className="text-xs font-bold text-slate-500">
-                          {/* Will fallthrough to Single Period Inspector below */}
-                        </div>
+                        (() => {
+                          const activeWeek = currentMonthWeeks.find(w => w.key === selectedMonthWeekSubMode) || currentMonthWeeks[0];
+                          if (!activeWeek) return null;
+
+                          return (
+                            <div className="space-y-4">
+                              {/* Navigation Banner for Single Week */}
+                              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedMonthWeekSubMode('all-4-weeks')}
+                                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-indigo-600 font-black text-[10px] rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <ChevronLeft className="w-3.5 h-3.5" />
+                                      Kembali ke Komparasi 4 Minggu
+                                    </button>
+                                    <span className="text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md">
+                                      {activeWeek.name}
+                                    </span>
+                                  </div>
+                                  <h4 className="text-sm font-black text-slate-800 mt-1">
+                                    Rincian Penjualan Per Hari • {activeWeek.name}
+                                  </h4>
+                                  <p className="text-[10.5px] text-slate-500 font-semibold">
+                                    Tanggal {String(activeWeek.startDay).padStart(2, '0')} s/d {String(activeWeek.endDay).padStart(2, '0')} {formatMonthLabel(selectedMonthlyWeekMonth || availableMonths[0]?.yearMonth)} ({activeWeek.daysCount} Hari Aktif)
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  {currentMonthWeeks.map(wk => (
+                                    <button
+                                      key={wk.key}
+                                      type="button"
+                                      onClick={() => setSelectedMonthWeekSubMode(wk.key)}
+                                      className={`px-2.5 py-1.5 rounded-xl font-bold text-[10.5px] transition-all cursor-pointer ${
+                                        selectedMonthWeekSubMode === wk.key
+                                          ? 'bg-indigo-600 text-white shadow-2xs'
+                                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                                      }`}
+                                    >
+                                      {wk.name}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* KPI Cards for the selected single week */}
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                <div className="border border-indigo-200 bg-indigo-50/40 rounded-2xl p-3">
+                                  <span className="text-[9.5px] font-black uppercase text-indigo-700 block">Total Omzet Minggu</span>
+                                  <span className="text-sm font-mono font-black text-indigo-950 mt-1 block">
+                                    {formatRupiah(activeWeek.summary.totalSales)}
+                                  </span>
+                                  <span className="text-[9px] text-indigo-600 font-semibold mt-0.5 block">
+                                    {currentMonthTotalSummary.totalSales > 0 ? ((activeWeek.summary.totalSales / currentMonthTotalSummary.totalSales) * 100).toFixed(1) : 0}% dari omzet bulan
+                                  </span>
+                                </div>
+
+                                <div className="border border-sky-200 bg-sky-50/40 rounded-2xl p-3">
+                                  <span className="text-[9.5px] font-black uppercase text-sky-700 block">Total Transaksi</span>
+                                  <span className="text-sm font-mono font-black text-sky-950 mt-1 block">
+                                    {formatNumberIndo(activeWeek.summary.totalTx)} Order
+                                  </span>
+                                  <span className="text-[9px] text-sky-600 font-semibold mt-0.5 block">
+                                    AOV: {formatRupiah(activeWeek.summary.aov)}
+                                  </span>
+                                </div>
+
+                                <div className="border border-amber-200 bg-amber-50/40 rounded-2xl p-3">
+                                  <span className="text-[9.5px] font-black uppercase text-amber-700 block">Rata-rata / Hari</span>
+                                  <span className="text-sm font-mono font-black text-amber-950 mt-1 block">
+                                    {formatRupiah(activeWeek.daysCount > 0 ? activeWeek.summary.totalSales / activeWeek.daysCount : 0)}
+                                  </span>
+                                  <span className="text-[9px] text-amber-600 font-semibold mt-0.5 block">
+                                    {activeWeek.daysCount} hari kalender
+                                  </span>
+                                </div>
+
+                                <div className="border border-emerald-200 bg-emerald-50/40 rounded-2xl p-3">
+                                  <span className="text-[9.5px] font-black uppercase text-emerald-700 block">Status Target L1 (150M)</span>
+                                  <span className={`text-xs font-black mt-1 block ${activeWeek.summary.totalSales >= activeWeek.targetL1 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                    {activeWeek.summary.totalSales >= activeWeek.targetL1 ? '✓ Tercapai' : `Butuh ${formatRupiahCompact(activeWeek.neededL1)} lagi`}
+                                  </span>
+                                  <span className="text-[9px] text-slate-500 font-semibold mt-0.5 block">
+                                    Capaian: {activeWeek.pctL1.toFixed(1)}%
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Detailed Daily Breakdown Table for the Selected Week */}
+                              <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
+                                <div className="bg-slate-100/90 px-3.5 py-2 border-b border-slate-200 flex items-center justify-between">
+                                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                    <CalendarDays className="w-3.5 h-3.5 text-indigo-600" />
+                                    Tabel Rincian Harian • {activeWeek.name} (Tanggal {String(activeWeek.startDay).padStart(2, '0')} - {String(activeWeek.endDay).padStart(2, '0')})
+                                  </span>
+                                  <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                                    {activeWeek.days.length} Hari
+                                  </span>
+                                </div>
+
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-left text-[11px] border-collapse">
+                                    <thead>
+                                      <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 uppercase tracking-wider font-bold">
+                                        <th className="py-2 px-3">Tanggal</th>
+                                        <th className="py-2 px-2">Hari</th>
+                                        <th className="py-2 px-2 text-right">Total Omzet</th>
+                                        <th className="py-2 px-2 text-right">Kontribusi</th>
+                                        <th className="py-2 px-2 text-right">Transaksi</th>
+                                        <th className="py-2 px-2 text-right">⚡ Instan</th>
+                                        <th className="py-2 px-2 text-right">🚚 Reguler</th>
+                                        <th className="py-2 px-2 text-right">📝 Manual</th>
+                                        <th className="py-2 px-3 text-right">AOV</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                                      {activeWeek.days.map((d) => {
+                                        const share = activeWeek.summary.totalSales > 0
+                                          ? ((d.totalAll / activeWeek.summary.totalSales) * 100).toFixed(1)
+                                          : '0';
+
+                                        return (
+                                          <tr key={d.date} className="hover:bg-slate-50 transition-colors">
+                                            <td className="py-2 px-3 font-mono font-bold text-slate-800">
+                                              {d.date}
+                                            </td>
+                                            <td className="py-2 px-2 font-bold text-slate-700">
+                                              {d.dayOfWeek}
+                                            </td>
+                                            <td className="py-2 px-2 text-right font-mono font-black text-indigo-950">
+                                              {formatRupiah(d.totalAll)}
+                                            </td>
+                                            <td className="py-2 px-2 text-right text-[10px] text-slate-500 font-semibold">
+                                              {share}%
+                                            </td>
+                                            <td className="py-2 px-2 text-right font-mono">
+                                              {formatNumberIndo(d.txAll)}
+                                            </td>
+                                            <td className="py-2 px-2 text-right font-mono text-amber-800 text-[10.5px]">
+                                              {formatRupiah(d.totalInstan)}
+                                            </td>
+                                            <td className="py-2 px-2 text-right font-mono text-sky-800 text-[10.5px]">
+                                              {formatRupiah(d.totalReguler)}
+                                            </td>
+                                            <td className="py-2 px-2 text-right font-mono text-emerald-800 text-[10.5px]">
+                                              {formatRupiah(d.totalManual)}
+                                            </td>
+                                            <td className="py-2 px-3 text-right font-mono text-slate-600">
+                                              {formatRupiah(d.txAll > 0 ? Math.round(d.totalAll / d.txAll) : 0)}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                      {/* Total Row */}
+                                      <tr className="bg-indigo-50/50 font-black border-t-2 border-indigo-200 text-indigo-950">
+                                        <td className="py-2.5 px-3 uppercase" colSpan={2}>
+                                          Total {activeWeek.name}
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right font-mono font-black text-xs">
+                                          {formatRupiah(activeWeek.summary.totalSales)}
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right text-[10px]">
+                                          100%
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right font-mono">
+                                          {formatNumberIndo(activeWeek.summary.totalTx)}
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right font-mono text-amber-900">
+                                          {formatRupiah(activeWeek.summary.totalInstan)}
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right font-mono text-sky-900">
+                                          {formatRupiah(activeWeek.summary.totalReguler)}
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right font-mono text-emerald-900">
+                                          {formatRupiah(activeWeek.summary.totalManual)}
+                                        </td>
+                                        <td className="py-2.5 px-3 text-right font-mono">
+                                          {formatRupiah(activeWeek.summary.aov)}
+                                        </td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()
                       )}
                     </div>
                   )}

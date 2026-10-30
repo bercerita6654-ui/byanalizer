@@ -1,28 +1,86 @@
-import React, { useState, useMemo } from 'react';
-import { DailySales } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { DailySales, SalesOrder } from '../types';
 import { formatRupiah, formatNumberIndo, formatRupiahCompact } from '../utils';
 import { 
   Target, Sparkles, TrendingUp, Sliders, CheckCircle2, 
-  HelpCircle, AlertCircle, TrendingDown, RefreshCw
+  HelpCircle, AlertCircle, TrendingDown, RefreshCw, Calendar, ChevronDown
 } from 'lucide-react';
 
 interface SalesPredictionsProps {
   salesData: DailySales[];
+  allOrders?: SalesOrder[];
+  selectedAdmin?: string;
 }
 
-export default function SalesPredictions({ salesData }: SalesPredictionsProps) {
-  // Simulator targets
-  const [targetOmzet, setTargetOmzet] = useState<number>(600000000); // Default 600jt (Level 1) target
-  const [targetOrder, setTargetOrder] = useState<number>(3000); // Default 3000 order target
+export default function SalesPredictions({ salesData, allOrders = [], selectedAdmin = '' }: SalesPredictionsProps) {
+  // Extract months strictly from Kolom 3: Tanggal of sheet LIST MENU PENJUALAN
+  const availableMonths = useMemo(() => {
+    if (allOrders && allOrders.length > 0) {
+      const monthsMap = new Map<string, { yearMonth: string; label: string; totalSales: number; totalTx: number }>();
+      allOrders.forEach(ord => {
+        if (ord.isVoid) return;
+        if (selectedAdmin && (ord.admin || ord.createdBy || '').trim() !== selectedAdmin) return;
+        
+        const dateStr = ord.date; // Kolom ke 3 Tanggal
+        if (!dateStr || dateStr.length < 7) return;
+        const yearMonth = dateStr.substring(0, 7);
+        
+        if (!monthsMap.has(yearMonth)) {
+          const dateObj = new Date(`${yearMonth}-02`);
+          let label = yearMonth;
+          if (!isNaN(dateObj.getTime())) {
+            label = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(dateObj);
+          }
+          monthsMap.set(yearMonth, { yearMonth, label, totalSales: 0, totalTx: 0 });
+        }
+        
+        const m = monthsMap.get(yearMonth)!;
+        m.totalSales += ord.total || 0;
+        m.totalTx += 1;
+      });
+      return Array.from(monthsMap.values()).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+    }
+
+    // Fallback using salesData
+    const monthsMap = new Map<string, { yearMonth: string; label: string; totalSales: number; totalTx: number }>();
+    salesData.forEach(day => {
+      const yearMonth = day.date.substring(0, 7);
+      if (!monthsMap.has(yearMonth)) {
+        const dateObj = new Date(`${yearMonth}-02`);
+        let label = yearMonth;
+        if (!isNaN(dateObj.getTime())) {
+          label = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(dateObj);
+        }
+        monthsMap.set(yearMonth, { yearMonth, label, totalSales: 0, totalTx: 0 });
+      }
+      const m = monthsMap.get(yearMonth)!;
+      m.totalSales += day.totalAll;
+      m.totalTx += day.txAll;
+    });
+    return Array.from(monthsMap.values()).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+  }, [allOrders, salesData, selectedAdmin]);
+
+  // Selected month state ('all' or specific yearMonth like '2026-10')
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+
+  // Simulator targets calibrated to LIST MENU PENJUALAN
+  const [targetOmzet, setTargetOmzet] = useState<number>(450000000); // Level 1 (Bronze) Target: 450M
+  const [targetOrder, setTargetOrder] = useState<number>(4000); // Average monthly tx: ~4000 Tx
 
   // Simulator coefficients
   const [multiplierInstan, setMultiplierInstan] = useState<number>(100); // default 100% (no change)
   const [multiplierReguler, setMultiplierReguler] = useState<number>(100);
   const [multiplierManual, setMultiplierManual] = useState<number>(100);
 
+  // Active dataset filtered by selected month if specified
+  const activeData = useMemo(() => {
+    if (selectedMonth === 'all') return salesData;
+    return salesData.filter(d => d.date.startsWith(selectedMonth));
+  }, [salesData, selectedMonth]);
+
   // General run rate stats
   const runRateStats = useMemo(() => {
-    if (salesData.length === 0) return null;
+    if (activeData.length === 0) return null;
 
     let totalSales = 0;
     let totalTx = 0;
@@ -30,7 +88,7 @@ export default function SalesPredictions({ salesData }: SalesPredictionsProps) {
     let totalRegulerSales = 0;
     let totalManualSales = 0;
 
-    salesData.forEach(d => {
+    activeData.forEach(d => {
       totalSales += d.totalAll;
       totalTx += d.txAll;
       totalInstanSales += d.totalInstan;
@@ -38,7 +96,7 @@ export default function SalesPredictions({ salesData }: SalesPredictionsProps) {
       totalManualSales += d.totalManual;
     });
 
-    const daysCount = salesData.length;
+    const daysCount = activeData.length;
     const avgDailySales = totalSales / daysCount;
     const avgDailyTx = totalTx / daysCount;
 
@@ -69,7 +127,7 @@ export default function SalesPredictions({ salesData }: SalesPredictionsProps) {
       simProject30DaysSales,
       difference: simTotalSales - totalSales
     };
-  }, [salesData, multiplierInstan, multiplierReguler, multiplierManual]);
+  }, [activeData, multiplierInstan, multiplierReguler, multiplierManual]);
 
   const resetSimulator = () => {
     setMultiplierInstan(100);
@@ -93,59 +151,147 @@ export default function SalesPredictions({ salesData }: SalesPredictionsProps) {
   const pctOmzetRunRate = Math.min((runRateStats.project30DaysSales / targetOmzet) * 100, 100);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      
-      {/* Set Targets Panel & Progress */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-6 flex flex-col justify-between">
-        <div className="space-y-4">
-          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-            <Target className="w-4.5 h-4.5 text-indigo-500" />
-            Pengaturan Target &amp; Progress Belanja
-          </h4>
-
-          {/* Form input */}
-          <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-            <div className="space-y-1">
-              <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Target Akumulasi Omzet (IDR)</label>
-              <input
-                type="number"
-                value={targetOmzet}
-                onChange={e => setTargetOmzet(Math.max(0, Number(e.target.value)))}
-                className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-slate-800 font-mono"
-              />
-              {/* Presets for 3 Levels */}
-              <div className="flex gap-1.5 pt-1.5">
-                {[
-                  { label: 'Lvl 1 (600M)', val: 600000000 },
-                  { label: 'Lvl 2 (700M)', val: 700000000 },
-                  { label: 'Lvl 3 (800M)', val: 800000000 }
-                ].map(p => (
-                  <button
-                    key={p.val}
-                    type="button"
-                    onClick={() => setTargetOmzet(p.val)}
-                    className={`flex-1 px-2 py-1 rounded-lg text-[9px] font-black transition-all border ${
-                      targetOmzet === p.val
-                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                        : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+    <div className="space-y-6">
+      {/* Month Selector from Kolom 3 Tanggal of LIST MENU PENJUALAN */}
+      {availableMonths.length > 0 && (
+        <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-xl">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest leading-none">
+                  Periode Target (Kolom 3: Tanggal)
+                </h4>
+                <p className="text-[10px] text-slate-400 font-bold mt-1">
+                  Pilih bulan dari sheet LIST MENU PENJUALAN untuk analisa dan simulasi target
+                </p>
               </div>
             </div>
-
-            <div className="space-y-1">
-              <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Target Akumulasi Transaksi (Tx)</label>
-              <input
-                type="number"
-                value={targetOrder}
-                onChange={e => setTargetOrder(Math.max(0, Number(e.target.value)))}
-                className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-slate-800"
-              />
-            </div>
+            {selectedMonth !== 'all' && (
+              <button
+                onClick={() => setSelectedMonth('all')}
+                className="text-[10px] font-black uppercase text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100 transition-all cursor-pointer self-start sm:self-auto"
+              >
+                Tampilkan Semua Periode
+              </button>
+            )}
           </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-1 pt-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <button
+              type="button"
+              onClick={() => setSelectedMonth('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all shrink-0 cursor-pointer ${
+                selectedMonth === 'all'
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                  : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              Semua Periode ({salesData.length} Hari)
+            </button>
+            {availableMonths.map((m) => (
+              <button
+                key={m.yearMonth}
+                type="button"
+                onClick={() => {
+                  setSelectedMonth(m.yearMonth);
+                  // Auto-suggest realistic target omzet for this month if appropriate
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
+                  selectedMonth === m.yearMonth
+                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <span>{m.label}</span>
+                <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                  selectedMonth === m.yearMonth
+                    ? 'bg-indigo-700 text-white'
+                    : 'bg-slate-200 text-slate-700 font-mono'
+                }`}>
+                  {formatRupiahCompact(m.totalSales)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Set Targets Panel & Progress */}
+        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-6 flex flex-col justify-between">
+          <div className="space-y-4">
+            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Target className="w-4.5 h-4.5 text-indigo-500" />
+              Pengaturan Target &amp; Realisasi
+            </h4>
+
+            {/* Form input */}
+            <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Target Akumulasi Omzet (IDR)</label>
+                <input
+                  type="number"
+                  value={targetOmzet}
+                  onChange={e => setTargetOmzet(Math.max(0, Number(e.target.value)))}
+                  className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-slate-800 font-mono"
+                />
+                {/* Presets calibrated to LIST MENU PENJUALAN */}
+                <div className="flex gap-1.5 pt-1.5">
+                  {[
+                    { label: 'Lvl 1 (450M)', val: 450000000 },
+                    { label: 'Lvl 2 (525M)', val: 525000000 },
+                    { label: 'Lvl 3 (600M)', val: 600000000 }
+                  ].map(p => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      onClick={() => setTargetOmzet(p.val)}
+                      className={`flex-1 px-2 py-1 rounded-lg text-[9px] font-black transition-all border cursor-pointer ${
+                        targetOmzet === p.val
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                          : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Target Akumulasi Transaksi (Tx)</label>
+                <input
+                  type="number"
+                  value={targetOrder}
+                  onChange={e => setTargetOrder(Math.max(0, Number(e.target.value)))}
+                  className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-slate-800 font-mono"
+                />
+                {/* Presets for Target Transaksi */}
+                <div className="flex gap-1.5 pt-1.5">
+                  {[
+                    { label: '3.500 Tx', val: 3500 },
+                    { label: '4.000 Tx', val: 4000 },
+                    { label: '4.500 Tx', val: 4500 }
+                  ].map(p => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      onClick={() => setTargetOrder(p.val)}
+                      className={`flex-1 px-2 py-1 rounded-lg text-[9px] font-black transition-all border cursor-pointer ${
+                        targetOrder === p.val
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                          : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
 
           {/* Progress Omzet */}
           <div className="space-y-2">
@@ -330,7 +476,7 @@ export default function SalesPredictions({ salesData }: SalesPredictionsProps) {
           💡 Geser slider untuk memodelkan dampak peningkatan/penurunan penjualan per channel terhadap target bisnis Anda.
         </p>
       </div>
-
     </div>
+  </div>
   );
 }

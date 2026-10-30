@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DailySales, MarketingEvent, ProductPerformance } from '../types';
 import { formatRupiah, formatNumberIndo, formatDateIndo, parseProductPerformanceCSV, formatRupiahCompact } from '../utils';
 import { getProductsCache, setProductsCache } from '../dbCache';
-import { Download, CheckCircle2, X, Calendar, FileText, Check, TrendingUp, ArrowRight, ArrowUpRight, ArrowDownRight, Layers, SlidersHorizontal, Trophy, Target, Award, CalendarDays, BarChart2, Copy, ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
+import { Download, CheckCircle2, X, Calendar, FileText, Check, TrendingUp, ArrowRight, ArrowUpRight, ArrowDownRight, Layers, SlidersHorizontal, Trophy, Target, Award, CalendarDays, BarChart2, Copy, ChevronRight, ChevronLeft, Sparkles, Eye } from 'lucide-react';
+import { PdfPreviewModal, PdfPreviewData } from './PdfPreviewModal';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -293,11 +294,11 @@ export function computeMonthWeeks(salesData: DailySales[], yearMonth: string): M
       }
     }
 
-    // Target 150M, 175M, 200M (prorated for W4 if daysCount != 7)
+    // Target 112.5M, 131.25M, 150M (prorated for W4 if daysCount != 7)
     const targetMultiplier = daysCount === 7 ? 1 : daysCount / 7;
-    const targetL1 = Math.round(150000000 * targetMultiplier);
-    const targetL2 = Math.round(175000000 * targetMultiplier);
-    const targetL3 = Math.round(200000000 * targetMultiplier);
+    const targetL1 = Math.round(112500000 * targetMultiplier);
+    const targetL2 = Math.round(131250000 * targetMultiplier);
+    const targetL3 = Math.round(150000000 * targetMultiplier);
 
     const pctL1 = targetL1 > 0 ? (summary.totalSales / targetL1) * 100 : 0;
     const pctL2 = targetL2 > 0 ? (summary.totalSales / targetL2) * 100 : 0;
@@ -941,15 +942,15 @@ export default function SalesReportModal({
     };
   }, [currentMonthData]);
 
-  // Target achievements for the selected month (bronze: 600m, silver: 700m, gold: 800m)
+  // Target achievements for the selected month (bronze: 450m, silver: 525m, gold: 600m)
   const targetAchievementsList = useMemo(() => {
     if (!currentMonthSummary) return [];
     const totalSales = currentMonthSummary.totalSales;
     
     return [
-      { key: 'bronze', label: 'Bronze (600M)', target: 600000000, achieved: totalSales >= 600000000, pct: (totalSales / 600000000) * 100 },
-      { key: 'silver', label: 'Silver (700M)', target: 700000000, achieved: totalSales >= 700000000, pct: (totalSales / 700000000) * 100 },
-      { key: 'gold', label: 'Gold (800M)', target: 800000000, achieved: totalSales >= 800000000, pct: (totalSales / 800000000) * 100 },
+      { key: 'bronze', label: 'Bronze (450M)', target: 450000000, achieved: totalSales >= 450000000, pct: (totalSales / 450000000) * 100 },
+      { key: 'silver', label: 'Silver (525M)', target: 525000000, achieved: totalSales >= 525000000, pct: (totalSales / 525000000) * 100 },
+      { key: 'gold', label: 'Gold (600M)', target: 600000000, achieved: totalSales >= 600000000, pct: (totalSales / 600000000) * 100 },
     ];
   }, [currentMonthSummary]);
 
@@ -1057,6 +1058,10 @@ export default function SalesReportModal({
   const [exportStep, setExportStep] = useState<string>('');
   const [activeExportIndex, setActiveExportIndex] = useState<number>(-1);
 
+  // PDF Preview State
+  const [pdfPreviewData, setPdfPreviewData] = useState<PdfPreviewData | null>(null);
+  const [isPdfPreviewOpen, setIsPdfPreviewOpen] = useState<boolean>(false);
+
   // Stale closure safeguard: create a ref mirroring the latest state
   const stateRef = useRef<{
     currentMonthSummary: any;
@@ -1154,9 +1159,9 @@ export default function SalesReportModal({
       const gap = 4;
 
       const latestTargetStatus = 
-        summary.totalSales >= 800000000 ? '🥇 Gold Achieved' :
-        summary.totalSales >= 700000000 ? '🥈 Silver Achieved' :
-        summary.totalSales >= 600000000 ? '🥉 Bronze Achieved' : '❌ Target Belum Tercapai';
+        summary.totalSales >= 600000000 ? '🥇 Gold Achieved' :
+        summary.totalSales >= 525000000 ? '🥈 Silver Achieved' :
+        summary.totalSales >= 450000000 ? '🥉 Bronze Achieved' : '❌ Target Belum Tercapai';
 
       drawKPIBox(14, 42, kpiW, kpiH, 'Omzet Penjualan Bulanan', formatRupiah(summary.totalSales), `Total omzet kotor bulan ${monthLabel}`, [79, 70, 229]);
       drawKPIBox(14 + kpiW + gap, 42, kpiW, kpiH, 'Volume Transaksi (Tx)', `${formatNumberIndo(summary.totalTx)} Order`, 'Total transaksi dalam bulan ini');
@@ -1675,8 +1680,18 @@ export default function SalesReportModal({
         doc.text(pageStr, doc.internal.pageSize.width - 14 - doc.getTextWidth(pageStr), 287);
       }
 
-      setExportStep(`Mengunduh PDF ${monthLabel}...`);
-      doc.save(fileName);
+      setExportStep(`Mempersiapkan pratinjau PDF ${monthLabel}...`);
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPdfPreviewData({
+        blobUrl,
+        fileName,
+        title: `Laporan Evaluasi Penjualan Bulanan (${monthLabel})`,
+        pageCount: doc.getNumberOfPages(),
+        fileSizeBytes: blob.size,
+        onDownloadConfirm: () => doc.save(fileName)
+      });
+      setIsPdfPreviewOpen(true);
     } catch (error) {
       console.error(`Gagal menghasilkan PDF untuk ${monthLabel}:`, error);
     }
@@ -1951,8 +1966,18 @@ export default function SalesReportModal({
         doc.text(pageStr, doc.internal.pageSize.width - 14 - doc.getTextWidth(pageStr), 287);
       }
 
-      setExportStep(`Mengunduh PDF Ringkasan Harian...`);
-      doc.save(fileName);
+      setExportStep(`Mempersiapkan pratinjau PDF Ringkasan Harian...`);
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPdfPreviewData({
+        blobUrl,
+        fileName,
+        title: `Ringkasan Eksekutif Harian (${dateStr})`,
+        pageCount: doc.getNumberOfPages(),
+        fileSizeBytes: blob.size,
+        onDownloadConfirm: () => doc.save(fileName)
+      });
+      setIsPdfPreviewOpen(true);
     } catch (err) {
       console.error('Gagal membuat ringkasan PDF harian:', err);
     } finally {
@@ -2107,12 +2132,12 @@ export default function SalesReportModal({
 
       curY += kpiH + 4.5;
 
-      // Target calculations for the period (Standard weekly: 150M Level 1, 175M Level 2, 200M Level 3)
+      // Target calculations for the period (Standard weekly: 112.5M Level 1, 131.25M Level 2, 150M Level 3)
       const periodDurationDays = Math.max(1, Math.round((new Date(realEnd).getTime() - new Date(realStart).getTime()) / (1000 * 60 * 60 * 24)) + 1);
       const targetMultiplier = periodDurationDays === 7 ? 1 : periodDurationDays / 7;
-      const targetL1 = Math.round(150000000 * targetMultiplier);
-      const targetL2 = Math.round(175000000 * targetMultiplier);
-      const targetL3 = Math.round(200000000 * targetMultiplier);
+      const targetL1 = Math.round(112500000 * targetMultiplier);
+      const targetL2 = Math.round(131250000 * targetMultiplier);
+      const targetL3 = Math.round(150000000 * targetMultiplier);
 
       const pctL1_curr = (currSummary.totalSales / targetL1) * 100;
       const pctL2_curr = (currSummary.totalSales / targetL2) * 100;
@@ -2859,8 +2884,18 @@ export default function SalesReportModal({
         doc.text(pageStr, 196 - doc.getTextWidth(pageStr), 288);
       }
 
-      setExportStep('Mengunduh file PDF terpadu...');
-      doc.save(fileName);
+      setExportStep('Mempersiapkan pratinjau PDF terpadu...');
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPdfPreviewData({
+        blobUrl,
+        fileName,
+        title: `Laporan Penjualan Terpadu (${formatDateShort(realStart)} s/d ${formatDateShort(realEnd)})`,
+        pageCount: doc.getNumberOfPages(),
+        fileSizeBytes: blob.size,
+        onDownloadConfirm: () => doc.save(fileName)
+      });
+      setIsPdfPreviewOpen(true);
     } catch (err) {
       console.error('Gagal membuat laporan penjualan PDF:', err);
     } finally {
@@ -2932,9 +2967,9 @@ export default function SalesReportModal({
       const weeks = weeksConfig.map((wc) => {
         const summary = computePeriodSummary(salesData, wc.start, wc.end);
         const targetMult = wc.daysCount === 7 ? 1 : wc.daysCount / 7;
-        const targetL1 = Math.round(150000000 * targetMult);
-        const targetL2 = Math.round(175000000 * targetMult);
-        const targetL3 = Math.round(200000000 * targetMult);
+        const targetL1 = Math.round(112500000 * targetMult);
+        const targetL2 = Math.round(131250000 * targetMult);
+        const targetL3 = Math.round(150000000 * targetMult);
         const pctL1 = targetL1 > 0 ? (summary.totalSales / targetL1) * 100 : 0;
         const pctL2 = targetL2 > 0 ? (summary.totalSales / targetL2) * 100 : 0;
         const pctL3 = targetL3 > 0 ? (summary.totalSales / targetL3) * 100 : 0;
@@ -3138,28 +3173,28 @@ export default function SalesReportModal({
           `${monthSummary.activeDaysCount} hari`
         ],
         [
-          'Target Level 1 (150M) & Status',
+          'Target Level 1 (112.5M) & Status',
           w1.summary.totalSales >= w1.targetL1 ? `Tercapai (${w1.pctL1.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w1.neededL1)} lagi`,
           w2.summary.totalSales >= w2.targetL1 ? `Tercapai (${w2.pctL1.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w2.neededL1)} lagi`,
           w3.summary.totalSales >= w3.targetL1 ? `Tercapai (${w3.pctL1.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w3.neededL1)} lagi`,
           w4.summary.totalSales >= w4.targetL1 ? `Tercapai (${w4.pctL1.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w4.neededL1)} lagi`,
-          monthSummary.totalSales >= 600000000 ? `Tercapai (${((monthSummary.totalSales / 600000000) * 100).toFixed(1)}%)` : `Butuh ${formatRupiahCompact(600000000 - monthSummary.totalSales)} lagi`
+          monthSummary.totalSales >= 450000000 ? `Tercapai (${((monthSummary.totalSales / 450000000) * 100).toFixed(1)}%)` : `Butuh ${formatRupiahCompact(450000000 - monthSummary.totalSales)} lagi`
         ],
         [
-          'Target Level 2 (175M) & Status',
+          'Target Level 2 (131.25M) & Status',
           w1.summary.totalSales >= w1.targetL2 ? `Tercapai (${w1.pctL2.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w1.neededL2)} lagi`,
           w2.summary.totalSales >= w2.targetL2 ? `Tercapai (${w2.pctL2.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w2.neededL2)} lagi`,
           w3.summary.totalSales >= w3.targetL2 ? `Tercapai (${w3.pctL2.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w3.neededL2)} lagi`,
           w4.summary.totalSales >= w4.targetL2 ? `Tercapai (${w4.pctL2.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w4.neededL2)} lagi`,
-          monthSummary.totalSales >= 700000000 ? `Tercapai (${((monthSummary.totalSales / 700000000) * 100).toFixed(1)}%)` : `Butuh ${formatRupiahCompact(700000000 - monthSummary.totalSales)} lagi`
+          monthSummary.totalSales >= 525000000 ? `Tercapai (${((monthSummary.totalSales / 525000000) * 100).toFixed(1)}%)` : `Butuh ${formatRupiahCompact(525000000 - monthSummary.totalSales)} lagi`
         ],
         [
-          'Target Level 3 (200M) & Status',
+          'Target Level 3 (150M) & Status',
           w1.summary.totalSales >= w1.targetL3 ? `Tercapai (${w1.pctL3.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w1.neededL3)} lagi`,
           w2.summary.totalSales >= w2.targetL3 ? `Tercapai (${w2.pctL3.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w2.neededL3)} lagi`,
           w3.summary.totalSales >= w3.targetL3 ? `Tercapai (${w3.pctL3.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w3.neededL3)} lagi`,
           w4.summary.totalSales >= w4.targetL3 ? `Tercapai (${w4.pctL3.toFixed(1)}%)` : `Butuh ${formatRupiahCompact(w4.neededL3)} lagi`,
-          monthSummary.totalSales >= 800000000 ? `Tercapai (${((monthSummary.totalSales / 800000000) * 100).toFixed(1)}%)` : `Butuh ${formatRupiahCompact(800000000 - monthSummary.totalSales)} lagi`
+          monthSummary.totalSales >= 600000000 ? `Tercapai (${((monthSummary.totalSales / 600000000) * 100).toFixed(1)}%)` : `Butuh ${formatRupiahCompact(600000000 - monthSummary.totalSales)} lagi`
         ]
       ];
 
@@ -3437,8 +3472,19 @@ export default function SalesReportModal({
         doc.text(pageStr, 196 - doc.getTextWidth(pageStr), 288);
       }
 
-      setExportStep('Mengunduh file PDF komparasi 4 minggu...');
-      doc.save(`Laporan_Komparasi_4_Minggu_${yearMonth}.pdf`);
+      setExportStep('Mempersiapkan pratinjau PDF komparasi 4 minggu...');
+      const fileName = `Laporan_Komparasi_4_Minggu_${yearMonth}.pdf`;
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPdfPreviewData({
+        blobUrl,
+        fileName,
+        title: `Laporan Komparasi 4 Minggu (W1, W2, W3, W4) • ${monthLabel}`,
+        pageCount: doc.getNumberOfPages(),
+        fileSizeBytes: blob.size,
+        onDownloadConfirm: () => doc.save(fileName)
+      });
+      setIsPdfPreviewOpen(true);
     } catch (err) {
       console.error('Gagal membuat laporan komparasi 4 minggu PDF:', err);
     } finally {
@@ -3476,7 +3522,6 @@ export default function SalesReportModal({
       setIsExporting(false);
       setActiveExportIndex(-1);
       setExportStep('');
-      onClose(); // Automatically close when done
     }
   };
 
@@ -4512,7 +4557,7 @@ export default function SalesReportModal({
 
                                       {/* Target Level 1 */}
                                       <tr className="bg-amber-50/30">
-                                        <td className="py-2 px-3 font-bold text-amber-900">Target Level 1 (150M)</td>
+                                        <td className="py-2 px-3 font-bold text-amber-900">Target Level 1 (112.5M)</td>
                                         {currentMonthWeeks.map(wk => (
                                           <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
                                             {wk.summary.totalSales >= wk.targetL1 ? (
@@ -4523,17 +4568,17 @@ export default function SalesReportModal({
                                           </td>
                                         ))}
                                         <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
-                                          {currentMonthTotalSummary.totalSales >= 600000000 ? (
+                                          {currentMonthTotalSummary.totalSales >= 450000000 ? (
                                             <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
                                           ) : (
-                                            <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(600000000 - currentMonthTotalSummary.totalSales)} lagi</span>
+                                            <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(450000000 - currentMonthTotalSummary.totalSales)} lagi</span>
                                           )}
                                         </td>
                                       </tr>
 
                                       {/* Target Level 2 */}
                                       <tr className="bg-slate-50/60">
-                                        <td className="py-2 px-3 font-bold text-slate-800">Target Level 2 (175M)</td>
+                                        <td className="py-2 px-3 font-bold text-slate-800">Target Level 2 (131.25M)</td>
                                         {currentMonthWeeks.map(wk => (
                                           <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
                                             {wk.summary.totalSales >= wk.targetL2 ? (
@@ -4544,17 +4589,17 @@ export default function SalesReportModal({
                                           </td>
                                         ))}
                                         <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
-                                          {currentMonthTotalSummary.totalSales >= 700000000 ? (
+                                          {currentMonthTotalSummary.totalSales >= 525000000 ? (
                                             <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
                                           ) : (
-                                            <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(700000000 - currentMonthTotalSummary.totalSales)} lagi</span>
+                                            <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(525000000 - currentMonthTotalSummary.totalSales)} lagi</span>
                                           )}
                                         </td>
                                       </tr>
 
                                       {/* Target Level 3 */}
                                       <tr className="bg-amber-50/40">
-                                        <td className="py-2 px-3 font-bold text-indigo-950">Target Level 3 (200M)</td>
+                                        <td className="py-2 px-3 font-bold text-indigo-950">Target Level 3 (150M)</td>
                                         {currentMonthWeeks.map(wk => (
                                           <td key={wk.key} className="py-2 px-2 text-right text-[10px]">
                                             {wk.summary.totalSales >= wk.targetL3 ? (
@@ -4565,10 +4610,10 @@ export default function SalesReportModal({
                                           </td>
                                         ))}
                                         <td className="py-2 px-3 text-right text-[10px] font-bold bg-indigo-50/50">
-                                          {currentMonthTotalSummary.totalSales >= 800000000 ? (
+                                          {currentMonthTotalSummary.totalSales >= 600000000 ? (
                                             <span className="text-emerald-700 font-extrabold">✓ Tercapai</span>
                                           ) : (
-                                            <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(800000000 - currentMonthTotalSummary.totalSales)} lagi</span>
+                                            <span className="text-rose-700 font-bold">Butuh {formatRupiahCompact(600000000 - currentMonthTotalSummary.totalSales)} lagi</span>
                                           )}
                                         </td>
                                       </tr>
@@ -4635,8 +4680,8 @@ export default function SalesReportModal({
                               disabled={isExporting}
                               className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
                             >
-                              <Download className="w-4 h-4" />
-                              Unduh Komparasi 4 Minggu (PDF)
+                              <Eye className="w-4 h-4" />
+                              Pratinjau &amp; Unduh Komparasi 4 Minggu (PDF)
                             </button>
                           </div>
                         </div>
@@ -5059,9 +5104,9 @@ export default function SalesReportModal({
                             {(() => {
                               const diffDays = Math.max(1, Math.round((new Date(activeRange.endDate).getTime() - new Date(activeRange.startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1);
                               const targetMultiplier = diffDays === 7 ? 1 : diffDays / 7;
-                              const targetL1 = Math.round(150000000 * targetMultiplier);
-                              const targetL2 = Math.round(175000000 * targetMultiplier);
-                              const targetL3 = Math.round(200000000 * targetMultiplier);
+                              const targetL1 = Math.round(112500000 * targetMultiplier);
+                              const targetL2 = Math.round(131250000 * targetMultiplier);
+                              const targetL3 = Math.round(150000000 * targetMultiplier);
 
                               const pctL1 = (current.totalSales / targetL1) * 100;
                               const pctL2 = (current.totalSales / targetL2) * 100;
@@ -5237,9 +5282,9 @@ export default function SalesReportModal({
                       const isChecked = selectedMonths.includes(month.yearMonth);
                       
                       // Target status indicator based on sales thresholds
-                      const isGold = month.totalSales >= 800000000;
-                      const isSilver = month.totalSales >= 700000000;
-                      const isBronze = month.totalSales >= 600000000;
+                      const isGold = month.totalSales >= 600000000;
+                      const isSilver = month.totalSales >= 525000000;
+                      const isBronze = month.totalSales >= 450000000;
                       
                       const targetLabel = isGold ? '🥇 Gold' : isSilver ? '🥈 Silver' : isBronze ? '🥉 Bronze' : '❌ No Level';
                       const targetColor = isGold 
@@ -5381,7 +5426,7 @@ export default function SalesReportModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2.5 border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-700 transition-colors bg-white shadow-sm"
+                  className="px-4 py-2.5 border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-700 transition-colors bg-white shadow-sm cursor-pointer"
                 >
                   Batal
                 </button>
@@ -5411,18 +5456,25 @@ export default function SalesReportModal({
                   }
                   className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 hover:scale-[1.01] cursor-pointer"
                 >
-                  <Download className="w-4 h-4 text-white" />
+                  <Eye className="w-4 h-4 text-white" />
                   {isProductsLoading
                     ? 'Memuat Produk...'
                     : reportType === 'weekly' && weeklySelectionMode === 'monthly-weeks' && selectedMonthWeekSubMode === 'all-4-weeks'
-                    ? 'Unduh Komparasi 4 Minggu (PDF)'
-                    : 'Mulai Unduh'}
+                    ? 'Pratinjau & Unduh Komparasi 4 Minggu'
+                    : 'Pratinjau & Unduh PDF'}
                 </button>
               </div>
             </div>
           </>
         )}
       </div>
+
+      {/* PDF Document Preview Modal */}
+      <PdfPreviewModal
+        isOpen={isPdfPreviewOpen}
+        data={pdfPreviewData}
+        onClose={() => setIsPdfPreviewOpen(false)}
+      />
     </div>
   );
 }

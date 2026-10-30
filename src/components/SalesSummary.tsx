@@ -1,17 +1,28 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DailySales } from '../types';
+import { DailySales, SalesOrder } from '../types';
 import { formatRupiah, formatNumberIndo, formatRupiahCompact, formatDateIndo } from '../utils';
 import { 
   TrendingUp, ShoppingCart, Award, Sparkles, DollarSign,
   ArrowUpRight, BarChart3, HelpCircle, Activity, ShoppingBag,
-  ArrowUp, ArrowDown, Trophy, Target, CheckCircle2, Lock, Calendar
+  ArrowUp, ArrowDown, Trophy, Target, CheckCircle2, Lock, Calendar,
+  Store, UserCheck, Zap, Package, FileText
 } from 'lucide-react';
 
 interface SalesSummaryProps {
   salesData: DailySales[];
+  rawOrders?: SalesOrder[];
+  allOrders?: SalesOrder[];
+  selectedAdmin?: string;
+  onSelectAdmin?: (admin: string) => void;
 }
 
-export default function SalesSummary({ salesData }: SalesSummaryProps) {
+export default function SalesSummary({ 
+  salesData, 
+  rawOrders = [], 
+  allOrders = [], 
+  selectedAdmin = '', 
+  onSelectAdmin 
+}: SalesSummaryProps) {
   const stats = useMemo(() => {
     if (salesData.length === 0) return null;
 
@@ -128,45 +139,57 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
   // Period filter state for Distribution Channel Composition (default to harian)
   const [distributionPeriod, setDistributionPeriod] = useState<'harian' | 'mingguan' | 'bulanan' | 'total'>('harian');
 
-  // Extract available months from salesData
+  // Extract available months from sheet LIST MENU PENJUALAN (Kolom 3: Tanggal)
   const availableMonths = useMemo(() => {
-    const monthsMap = new Map<string, { yearMonth: string; label: string; totalSales: number }>();
+    const dataSource = allOrders && allOrders.length > 0 ? allOrders : rawOrders;
     
-    // Sort salesData chronologically to get correct ordering
-    const sortedData = [...salesData].sort((a, b) => a.date.localeCompare(b.date));
-    
-    sortedData.forEach(day => {
-      const parts = day.date.split('-');
-      if (parts.length >= 2) {
-        const yearMonth = `${parts[0]}-${parts[1]}`;
-        const dateObj = new Date(day.date);
-        let label = '';
-        if (!isNaN(dateObj.getTime())) {
-          // Format e.g., "Januari 2026"
-          label = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(dateObj);
-        } else {
-          label = yearMonth;
+    if (dataSource && dataSource.length > 0) {
+      const monthsMap = new Map<string, { yearMonth: string; label: string; totalSales: number; totalTx: number }>();
+      
+      dataSource.forEach(ord => {
+        if (ord.isVoid) return;
+        if (selectedAdmin && (ord.admin || ord.createdBy || '').trim() !== selectedAdmin) return;
+
+        const dateStr = ord.date; // Kolom 3: Tanggal
+        if (!dateStr || dateStr.length < 7) return;
+        const yearMonth = dateStr.substring(0, 7); // "YYYY-MM"
+        
+        if (!monthsMap.has(yearMonth)) {
+          const dateObj = new Date(`${yearMonth}-02`);
+          let label = yearMonth;
+          if (!isNaN(dateObj.getTime())) {
+            label = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(dateObj);
+          }
+          monthsMap.set(yearMonth, { yearMonth, label, totalSales: 0, totalTx: 0 });
         }
         
-        const existing = monthsMap.get(yearMonth);
-        if (existing) {
-          existing.totalSales += day.totalAll;
-        } else {
-          monthsMap.set(yearMonth, { yearMonth, label, totalSales: 0 });
+        const m = monthsMap.get(yearMonth)!;
+        m.totalSales += ord.total || 0;
+        m.totalTx += 1;
+      });
+
+      return Array.from(monthsMap.values()).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+    }
+
+    // Fallback if rawOrders not yet populated
+    const monthsMap = new Map<string, { yearMonth: string; label: string; totalSales: number; totalTx: number }>();
+    salesData.forEach(day => {
+      const yearMonth = day.date.substring(0, 7);
+      if (!monthsMap.has(yearMonth)) {
+        const dateObj = new Date(`${yearMonth}-02`);
+        let label = yearMonth;
+        if (!isNaN(dateObj.getTime())) {
+          label = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(dateObj);
         }
+        monthsMap.set(yearMonth, { yearMonth, label, totalSales: 0, totalTx: 0 });
       }
-    });
-    
-    // Fill correct totalSales by summing up matching days
-    monthsMap.forEach((val, key) => {
-      const totalForMonth = salesData
-        .filter(day => day.date.startsWith(key))
-        .reduce((sum, d) => sum + d.totalAll, 0);
-      val.totalSales = totalForMonth;
+      const m = monthsMap.get(yearMonth)!;
+      m.totalSales += day.totalAll;
+      m.totalTx += day.txAll;
     });
 
-    return Array.from(monthsMap.values());
-  }, [salesData]);
+    return Array.from(monthsMap.values()).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+  }, [allOrders, rawOrders, selectedAdmin, salesData]);
 
   // Set initial selected target month to the latest month in dataset
   useEffect(() => {
@@ -179,18 +202,20 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
 
   // Get current selected month sales info
   const selectedMonthInfo = useMemo(() => {
-    if (!selectedTargetMonth) return { label: '-', totalSales: 0, yearMonth: '' };
+    if (selectedTargetMonth === 'all') {
+      const allSales = availableMonths.reduce((sum, m) => sum + m.totalSales, 0);
+      const allTx = availableMonths.reduce((sum, m) => sum + m.totalTx, 0);
+      return { yearMonth: 'all', label: 'Semua Bulan', totalSales: allSales, totalTx: allTx };
+    }
+    if (!selectedTargetMonth) return { label: '-', totalSales: 0, totalTx: 0, yearMonth: '' };
     const found = availableMonths.find(m => m.yearMonth === selectedTargetMonth);
     if (found) return found;
     
     // Fallback if not found in precalculated list
     const labelParts = selectedTargetMonth.split('-');
     const label = labelParts.length >= 2 ? `${labelParts[1]}/${labelParts[0]}` : selectedTargetMonth;
-    const total = salesData
-      .filter(day => day.date.startsWith(selectedTargetMonth))
-      .reduce((sum, d) => sum + d.totalAll, 0);
-    return { yearMonth: selectedTargetMonth, label, totalSales: total };
-  }, [availableMonths, selectedTargetMonth, salesData]);
+    return { yearMonth: selectedTargetMonth, label, totalSales: 0, totalTx: 0 };
+  }, [availableMonths, selectedTargetMonth]);
 
   const todayComparison = useMemo(() => {
     if (salesData.length === 0) return null;
@@ -198,31 +223,8 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
     // Chronologically sort data
     const sorted = [...salesData].sort((a, b) => a.date.localeCompare(b.date));
 
-    // Get current real-time today's date in local time (YYYY-MM-DD)
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const todayDateStr = `${year}-${month}-${day}`;
-
-    // Find index of today's date in sorted array
-    let latestIndex = sorted.findIndex(day => day.date === todayDateStr);
-    
-    // If not found, look for latest day <= today's date
-    if (latestIndex === -1) {
-      for (let i = sorted.length - 1; i >= 0; i--) {
-        if (sorted[i].date <= todayDateStr) {
-          latestIndex = i;
-          break;
-        }
-      }
-    }
-
-    // Fallback to the last element if still not found
-    if (latestIndex === -1) {
-      latestIndex = sorted.length - 1;
-    }
-
+    // Pick the latest day in the dataset (latest real transaction in LIST MENU PENJUALAN)
+    const latestIndex = sorted.length - 1;
     const latestDay = sorted[latestIndex];
 
     // Get preceding 7 days relative to the resolved latestDay
@@ -255,6 +257,97 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
       hasHistory: true
     };
   }, [salesData]);
+
+  // Aggregated Store (Kolom 6), Admin (Kolom 10), and Status (Kolom 13) analytics from raw orders
+  // Automatically follows the selected month from Target Penjualan Berjenjang
+  const storeAndAdminStats = useMemo(() => {
+    const baseOrdersForStores = rawOrders && rawOrders.length > 0 ? rawOrders : (allOrders || []);
+    const baseOrdersForAdmins = allOrders && allOrders.length > 0 ? allOrders : (rawOrders || []);
+
+    if (baseOrdersForStores.length === 0 && baseOrdersForAdmins.length === 0) return null;
+
+    // Filter by selected target month if specific month chosen (e.g. "2026-10")
+    const filteredStoreOrders = selectedTargetMonth && selectedTargetMonth !== 'all'
+      ? baseOrdersForStores.filter(ord => ord.date && ord.date.startsWith(selectedTargetMonth))
+      : baseOrdersForStores;
+
+    const filteredAdminOrders = selectedTargetMonth && selectedTargetMonth !== 'all'
+      ? baseOrdersForAdmins.filter(ord => ord.date && ord.date.startsWith(selectedTargetMonth))
+      : baseOrdersForAdmins;
+
+    const storeMap = new Map<string, { name: string; sales: number; tx: number; instanTx: number; regulerTx: number; manualTx: number }>();
+    const adminMap = new Map<string, { name: string; sales: number; tx: number }>();
+    const statusMap = new Map<string, { status: string; count: number; sales: number }>();
+
+    let totalStoreSales = 0;
+    let totalStoreTx = 0;
+
+    filteredStoreOrders.forEach(ord => {
+      if (ord.isVoid) return;
+      const storeName = ord.tokoOnline || ord.customer || 'Lainnya';
+      const status = ord.status || 'Tidak Diketahui';
+      const total = ord.total || 0;
+
+      totalStoreSales += total;
+      totalStoreTx += 1;
+
+      // Store stats
+      if (!storeMap.has(storeName)) {
+        storeMap.set(storeName, { name: storeName, sales: 0, tx: 0, instanTx: 0, regulerTx: 0, manualTx: 0 });
+      }
+      const s = storeMap.get(storeName)!;
+      s.sales += total;
+      s.tx += 1;
+      if (ord.orderCategory === 'instan') s.instanTx += 1;
+      else if (ord.orderCategory === 'manual') s.manualTx += 1;
+      else s.regulerTx += 1;
+
+      // Status stats
+      if (!statusMap.has(status)) {
+        statusMap.set(status, { status, count: 0, sales: 0 });
+      }
+      const st = statusMap.get(status)!;
+      st.count += 1;
+      st.sales += total;
+    });
+
+    filteredAdminOrders.forEach(ord => {
+      if (ord.isVoid) return;
+      const adminName = (ord.admin || ord.createdBy || '').trim();
+      const total = ord.total || 0;
+
+      if (adminName && adminName !== '-' && adminName.toLowerCase() !== 'lainnya') {
+        if (!adminMap.has(adminName)) {
+          adminMap.set(adminName, { name: adminName, sales: 0, tx: 0 });
+        }
+        const a = adminMap.get(adminName)!;
+        a.sales += total;
+        a.tx += 1;
+      }
+    });
+
+    let totalAdminSales = 0;
+    let totalAdminTx = 0;
+    adminMap.forEach(a => {
+      totalAdminSales += a.sales;
+      totalAdminTx += a.tx;
+    });
+
+    const stores = Array.from(storeMap.values()).sort((a, b) => b.sales - a.sales);
+    const admins = Array.from(adminMap.values()).sort((a, b) => b.sales - a.sales);
+    const statuses = Array.from(statusMap.values()).sort((a, b) => b.count - a.count);
+
+    return {
+      stores,
+      admins,
+      statuses,
+      totalStoreSales,
+      totalStoreTx,
+      totalAdminSales,
+      totalAdminTx,
+      selectedMonthLabel: selectedMonthInfo.label
+    };
+  }, [rawOrders, allOrders, selectedTargetMonth, selectedMonthInfo]);
 
   // Dynamically scale channel splits based on distribution period (harian, mingguan, bulanan, total)
   const scaledChannelData = useMemo(() => {
@@ -294,6 +387,38 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
 
   return (
     <div className="space-y-6">
+      {/* Active Admin Monitoring Banner */}
+      {selectedAdmin && (
+        <div className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 rounded-3xl p-4 sm:p-5 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-300">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-white/15 rounded-2xl backdrop-blur-sm shrink-0 border border-white/20">
+              <UserCheck className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-md">
+                  Performa Harian Admin (Kolom 10)
+                </span>
+                <span className="text-xs text-indigo-200 font-semibold hidden sm:inline">Sheet LIST MENU PENJUALAN</span>
+              </div>
+              <h3 className="text-sm sm:text-base font-black tracking-tight mt-1 flex items-center gap-2">
+                <span>Memantau Kinerja Admin:</span>
+                <span className="underline decoration-indigo-300 underline-offset-4">{selectedAdmin}</span>
+              </h3>
+            </div>
+          </div>
+          {onSelectAdmin && (
+            <button
+              onClick={() => onSelectAdmin('')}
+              className="px-4 py-2 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 active:bg-indigo-100 text-xs font-black uppercase tracking-wider transition-all self-start sm:self-auto cursor-pointer shadow-sm shrink-0"
+              title="Kembali ke performa gabungan semua admin"
+            >
+              Lihat Semua Admin
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Prime KPI Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-5">
         
@@ -452,6 +577,25 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
         {/* Month Selector Buttons */}
         {availableMonths.length > 0 && (
           <div className="flex gap-2 pb-3 overflow-x-auto border-b border-slate-100 -mx-4 px-4 sm:-mx-6 sm:px-6 md:flex-wrap md:overflow-x-visible md:mx-0 md:px-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <button
+              type="button"
+              onClick={() => setSelectedTargetMonth('all')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all flex items-center gap-2 shrink-0 ${
+                selectedTargetMonth === 'all'
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                  : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              <span>Semua Bulan</span>
+              <span className={`ml-1 text-[11px] font-bold px-2 py-0.5 rounded-lg ${
+                selectedTargetMonth === 'all'
+                  ? 'bg-indigo-700/85 text-indigo-50'
+                  : 'bg-slate-200 text-slate-600 font-mono'
+              }`}>
+                {formatRupiahCompact(availableMonths.reduce((s, m) => s + m.totalSales, 0))}
+              </span>
+            </button>
             {availableMonths.map((month) => (
               <button
                 key={month.yearMonth}
@@ -483,34 +627,34 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
             {/* The fill */}
             <div 
               className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 rounded-full transition-all duration-1000 relative shadow-inner"
-              style={{ width: `${Math.min((selectedMonthInfo.totalSales / 850000000) * 100, 100)}%` }}
+              style={{ width: `${Math.min((selectedMonthInfo.totalSales / 650000000) * 100, 100)}%` }}
             />
 
             {/* Level 1 pin */}
             <div 
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center"
-              style={{ left: `${(600000000 / 850000000) * 100}%` }}
+              style={{ left: `${(450000000 / 650000000) * 100}%` }}
             >
-              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 600000000 ? 'bg-indigo-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
-              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 1 (600M)</span>
+              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 450000000 ? 'bg-amber-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
+              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 1 (450M)</span>
             </div>
 
             {/* Level 2 pin */}
             <div 
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center"
-              style={{ left: `${(700000000 / 850000000) * 100}%` }}
+              style={{ left: `${(525000000 / 650000000) * 100}%` }}
             >
-              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 700000000 ? 'bg-purple-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
-              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 2 (700M)</span>
+              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 525000000 ? 'bg-purple-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
+              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 2 (525M)</span>
             </div>
 
             {/* Level 3 pin */}
             <div 
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center"
-              style={{ left: `${(800000000 / 850000000) * 100}%` }}
+              style={{ left: `${(600000000 / 650000000) * 100}%` }}
             >
-              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 800000000 ? 'bg-amber-500 border-white animate-bounce' : 'bg-white border-slate-300'} shadow-sm z-10`} />
-              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 3 (800M)</span>
+              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 600000000 ? 'bg-emerald-500 border-white animate-bounce' : 'bg-white border-slate-300'} shadow-sm z-10`} />
+              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 3 (600M)</span>
             </div>
           </div>
           {/* Spacer for label heights */}
@@ -522,20 +666,132 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
           
           {/* Level 1 Card */}
           <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
-            selectedMonthInfo.totalSales >= 600000000
+            selectedMonthInfo.totalSales >= 450000000
               ? 'bg-amber-50/50 border-amber-200/60 shadow-sm shadow-amber-100/30'
               : 'bg-slate-50/40 border-slate-100'
           }`}>
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2">
                 <div className={`p-2 rounded-xl shrink-0 ${
-                  selectedMonthInfo.totalSales >= 600000000 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
+                  selectedMonthInfo.totalSales >= 450000000 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
                 }`}>
                   <Trophy className="w-4 h-4" />
                 </div>
                 <div>
                   <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 1</h5>
                   <p className="text-[10px] sm:text-xs text-amber-800 font-bold mt-1">Sertifikasi Bronze</p>
+                </div>
+              </div>
+              {selectedMonthInfo.totalSales >= 450000000 ? (
+                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200/40 flex items-center gap-1 shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Achieved
+                </span>
+              ) : (
+                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 flex items-center gap-1 shrink-0">
+                  <Lock className="w-3.5 h-3.5" /> Locked
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs sm:text-sm font-bold text-slate-400">Target Omzet</span>
+                <span className="text-sm sm:text-base font-black text-slate-800 font-mono">Rp 450.000.000</span>
+              </div>
+              
+              <div className="flex justify-between items-center text-xs text-slate-500 font-bold mt-2">
+                <span>Progress</span>
+                <span className="font-mono">{Math.min((selectedMonthInfo.totalSales / 450000000) * 100, 100).toFixed(1)}%</span>
+              </div>
+              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 450000000 ? 'bg-amber-500' : 'bg-indigo-400'}`}
+                  style={{ width: `${Math.min((selectedMonthInfo.totalSales / 450000000) * 100, 100)}%` }}
+                />
+              </div>
+
+              <p className="text-xs font-semibold text-slate-500 mt-2">
+                {selectedMonthInfo.totalSales >= 450000000 ? (
+                  <span className="text-emerald-600 font-bold">🎉 Selamat! Target level 1 terlampaui.</span>
+                ) : (
+                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(450000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk mencapai level ini.</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Level 2 Card */}
+          <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
+            selectedMonthInfo.totalSales >= 525000000
+              ? 'bg-purple-50/50 border-purple-200/60 shadow-sm shadow-purple-100/30'
+              : 'bg-slate-50/40 border-slate-100'
+          }`}>
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <div className={`p-2 rounded-xl shrink-0 ${
+                  selectedMonthInfo.totalSales >= 525000000 ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-400'
+                }`}>
+                  <Trophy className="w-4 h-4" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 2</h5>
+                  <p className="text-[10px] sm:text-xs text-purple-800 font-bold mt-1">Sertifikasi Silver</p>
+                </div>
+              </div>
+              {selectedMonthInfo.totalSales >= 525000000 ? (
+                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200/40 flex items-center gap-1 shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Achieved
+                </span>
+              ) : (
+                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 flex items-center gap-1 shrink-0">
+                  <Lock className="w-3.5 h-3.5" /> Locked
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs sm:text-sm font-bold text-slate-400">Target Omzet</span>
+                <span className="text-sm sm:text-base font-black text-slate-800 font-mono">Rp 525.000.000</span>
+              </div>
+              
+              <div className="flex justify-between items-center text-xs text-slate-500 font-bold mt-2">
+                <span>Progress</span>
+                <span className="font-mono">{Math.min((selectedMonthInfo.totalSales / 525000000) * 100, 100).toFixed(1)}%</span>
+              </div>
+              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 525000000 ? 'bg-purple-500' : 'bg-indigo-400'}`}
+                  style={{ width: `${Math.min((selectedMonthInfo.totalSales / 525000000) * 100, 100)}%` }}
+                />
+              </div>
+
+              <p className="text-xs font-semibold text-slate-500 mt-2">
+                {selectedMonthInfo.totalSales >= 525000000 ? (
+                  <span className="text-emerald-600 font-bold">🎉 Hebat! Target level 2 berhasil ditembus.</span>
+                ) : (
+                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(525000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk mencapai level ini.</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Level 3 Card */}
+          <div className={`p-4 sm:p-5 rounded-2xl border transition-all sm:col-span-2 lg:col-span-1 ${
+            selectedMonthInfo.totalSales >= 600000000
+              ? 'bg-indigo-50/50 border-indigo-200/60 shadow-sm shadow-indigo-100/30'
+              : 'bg-slate-50/40 border-slate-100'
+          }`}>
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <div className={`p-2 rounded-xl shrink-0 ${
+                  selectedMonthInfo.totalSales >= 600000000 ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'
+                }`}>
+                  <Trophy className="w-4 h-4" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 3</h5>
+                  <p className="text-[10px] sm:text-xs text-indigo-800 font-bold mt-1">Sertifikasi Gold</p>
                 </div>
               </div>
               {selectedMonthInfo.totalSales >= 600000000 ? (
@@ -561,128 +817,16 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
               </div>
               <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div 
-                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 600000000 ? 'bg-amber-500' : 'bg-indigo-400'}`}
+                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 600000000 ? 'bg-indigo-600' : 'bg-indigo-500'}`}
                   style={{ width: `${Math.min((selectedMonthInfo.totalSales / 600000000) * 100, 100)}%` }}
                 />
               </div>
 
               <p className="text-xs font-semibold text-slate-500 mt-2">
                 {selectedMonthInfo.totalSales >= 600000000 ? (
-                  <span className="text-emerald-600 font-bold">🎉 Selamat! Target level 1 terlampaui.</span>
-                ) : (
-                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(600000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk mencapai level ini.</span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          {/* Level 2 Card */}
-          <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
-            selectedMonthInfo.totalSales >= 700000000
-              ? 'bg-purple-50/50 border-purple-200/60 shadow-sm shadow-purple-100/30'
-              : 'bg-slate-50/40 border-slate-100'
-          }`}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-2">
-                <div className={`p-2 rounded-xl shrink-0 ${
-                  selectedMonthInfo.totalSales >= 700000000 ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-400'
-                }`}>
-                  <Trophy className="w-4 h-4" />
-                </div>
-                <div>
-                  <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 2</h5>
-                  <p className="text-[10px] sm:text-xs text-purple-800 font-bold mt-1">Sertifikasi Silver</p>
-                </div>
-              </div>
-              {selectedMonthInfo.totalSales >= 700000000 ? (
-                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200/40 flex items-center gap-1 shrink-0">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Achieved
-                </span>
-              ) : (
-                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 flex items-center gap-1 shrink-0">
-                  <Lock className="w-3.5 h-3.5" /> Locked
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between items-baseline">
-                <span className="text-xs sm:text-sm font-bold text-slate-400">Target Omzet</span>
-                <span className="text-sm sm:text-base font-black text-slate-800 font-mono">Rp 700.000.000</span>
-              </div>
-              
-              <div className="flex justify-between items-center text-xs text-slate-500 font-bold mt-2">
-                <span>Progress</span>
-                <span className="font-mono">{Math.min((selectedMonthInfo.totalSales / 700000000) * 100, 100).toFixed(1)}%</span>
-              </div>
-              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 700000000 ? 'bg-purple-500' : 'bg-indigo-400'}`}
-                  style={{ width: `${Math.min((selectedMonthInfo.totalSales / 700000000) * 100, 100)}%` }}
-                />
-              </div>
-
-              <p className="text-xs font-semibold text-slate-500 mt-2">
-                {selectedMonthInfo.totalSales >= 700000000 ? (
-                  <span className="text-emerald-600 font-bold">🎉 Hebat! Target level 2 berhasil ditembus.</span>
-                ) : (
-                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(700000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk mencapai level ini.</span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          {/* Level 3 Card */}
-          <div className={`p-4 sm:p-5 rounded-2xl border transition-all sm:col-span-2 lg:col-span-1 ${
-            selectedMonthInfo.totalSales >= 800000000
-              ? 'bg-indigo-50/50 border-indigo-200/60 shadow-sm shadow-indigo-100/30'
-              : 'bg-slate-50/40 border-slate-100'
-          }`}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-2">
-                <div className={`p-2 rounded-xl shrink-0 ${
-                  selectedMonthInfo.totalSales >= 800000000 ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'
-                }`}>
-                  <Trophy className="w-4 h-4" />
-                </div>
-                <div>
-                  <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 3</h5>
-                  <p className="text-[10px] sm:text-xs text-indigo-800 font-bold mt-1">Sertifikasi Gold</p>
-                </div>
-              </div>
-              {selectedMonthInfo.totalSales >= 800000000 ? (
-                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200/40 flex items-center gap-1 shrink-0">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Achieved
-                </span>
-              ) : (
-                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 flex items-center gap-1 shrink-0">
-                  <Lock className="w-3.5 h-3.5" /> Locked
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between items-baseline">
-                <span className="text-xs sm:text-sm font-bold text-slate-400">Target Omzet</span>
-                <span className="text-sm sm:text-base font-black text-slate-800 font-mono">Rp 800.000.000</span>
-              </div>
-              
-              <div className="flex justify-between items-center text-xs text-slate-500 font-bold mt-2">
-                <span>Progress</span>
-                <span className="font-mono">{Math.min((selectedMonthInfo.totalSales / 800000000) * 100, 100).toFixed(1)}%</span>
-              </div>
-              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 800000000 ? 'bg-indigo-600' : 'bg-indigo-500'}`}
-                  style={{ width: `${Math.min((selectedMonthInfo.totalSales / 800000000) * 100, 100)}%` }}
-                />
-              </div>
-
-              <p className="text-xs font-semibold text-slate-500 mt-2">
-                {selectedMonthInfo.totalSales >= 800000000 ? (
                   <span className="text-emerald-600 font-bold">🏆 Luar Biasa! Anda melampaui Target Utama Level 3!</span>
                 ) : (
-                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(800000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk melampaui target utama.</span>
+                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(600000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk melampaui target utama.</span>
                 )}
               </p>
             </div>
@@ -792,7 +936,229 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
         </div>
       </div>
 
-      {/* Day of Week Analysis Area */}
+      {/* Toko Online (Kolom 6) & Admin Proses Nota (Kolom 10) Breakdown from LIST MENU PENJUALAN */}
+      {storeAndAdminStats && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* Toko Online Performance (Kolom 6) */}
+            <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-xl">
+                      <Store className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest leading-none">
+                        Kinerja Toko Online (Kolom 6)
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1">
+                        Breakdown Toko • Periode: <span className="text-indigo-600 font-black">{selectedMonthInfo.label}</span> (Sesuai Target)
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100 flex items-center gap-1.5 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                    {selectedMonthInfo.label} ({storeAndAdminStats.stores.length} Toko)
+                  </span>
+                </div>
+
+                <div className="space-y-3.5 mt-5">
+                  {storeAndAdminStats.stores.map((store, idx) => {
+                    const pctOfTotal = storeAndAdminStats.totalStoreSales > 0 
+                      ? (store.sales / storeAndAdminStats.totalStoreSales) * 100 
+                      : 0;
+
+                    return (
+                      <div key={store.name} className="p-3.5 rounded-2xl bg-slate-50/70 border border-slate-100 space-y-2 hover:bg-slate-50 transition-all">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[10px] font-extrabold w-5 h-5 rounded-md bg-white border border-slate-200/60 text-slate-600 flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <span className="text-xs font-black text-slate-800 truncate" title={store.name}>
+                              {store.name}
+                            </span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-xs font-black text-slate-900 font-mono block">
+                              {formatRupiah(store.sales)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="h-1.5 bg-slate-200/70 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-700"
+                            style={{ width: `${Math.min(pctOfTotal, 100)}%` }}
+                          />
+                        </div>
+
+                        {/* Order stats & tags */}
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold pt-0.5">
+                          <span>
+                            {pctOfTotal.toFixed(1)}% dari total omzet ({formatNumberIndo(store.tx)} Tx)
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {store.instanTx > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-100/70 text-emerald-700 text-[9px] font-extrabold">
+                                {formatNumberIndo(store.instanTx)} Instan
+                              </span>
+                            )}
+                            {store.regulerTx > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-indigo-100/70 text-indigo-700 text-[9px] font-extrabold">
+                                {formatNumberIndo(store.regulerTx)} Reguler
+                              </span>
+                            )}
+                            {store.manualTx > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-100/70 text-amber-700 text-[9px] font-extrabold">
+                                {formatNumberIndo(store.manualTx)} Manual
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-5 border-t border-slate-100 pt-3 text-[11px] text-slate-400 font-semibold flex items-center justify-between">
+                <span>Total Omzet Toko ({selectedMonthInfo.label}):</span>
+                <span className="font-black text-slate-700 font-mono">{formatRupiah(storeAndAdminStats.totalStoreSales)}</span>
+              </div>
+            </div>
+
+            {/* Admin Leaderboard (Kolom 10) */}
+            <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-emerald-50 border border-emerald-100 text-emerald-600 rounded-xl">
+                      <UserCheck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest leading-none">
+                        Produktivitas Admin (Kolom 10)
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1">
+                        Peringkat Admin Pemroses Nota • Periode: <span className="text-emerald-700 font-black">{selectedMonthInfo.label}</span> (Sesuai Target)
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center gap-1.5 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    {selectedMonthInfo.label} • Leaderboard
+                  </span>
+                </div>
+
+                <div className="space-y-2.5 mt-5">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mb-2">
+                    <span>Pilih admin untuk filter performa harian ({selectedMonthInfo.label}):</span>
+                    {selectedAdmin && onSelectAdmin && (
+                      <button 
+                        onClick={() => onSelectAdmin('')}
+                        className="text-indigo-600 hover:text-indigo-800 font-extrabold cursor-pointer"
+                      >
+                        Reset Pilihan
+                      </button>
+                    )}
+                  </div>
+                  {storeAndAdminStats.admins.slice(0, 8).map((admin, idx) => {
+                    const medalColors = [
+                      'bg-amber-100 text-amber-800 border-amber-200',
+                      'bg-slate-200 text-slate-700 border-slate-300',
+                      'bg-amber-50 text-amber-700 border-amber-200/60'
+                    ];
+
+                    const aov = admin.tx > 0 ? admin.sales / admin.tx : 0;
+                    const isSelected = selectedAdmin === admin.name;
+                    const totalRef = storeAndAdminStats.totalAdminSales || storeAndAdminStats.totalStoreSales || 1;
+
+                    return (
+                      <div 
+                        key={admin.name} 
+                        onClick={() => onSelectAdmin?.(isSelected ? '' : admin.name)}
+                        className={`p-3 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer select-none ${
+                          isSelected
+                            ? 'bg-indigo-50/90 border-indigo-300 ring-2 ring-indigo-400/40 shadow-sm'
+                            : idx === 0 
+                            ? 'bg-amber-50/40 border-amber-200/50 hover:bg-amber-50/70' 
+                            : idx === 1 
+                            ? 'bg-slate-50/70 border-slate-200/60 hover:bg-slate-100/70'
+                            : 'bg-white border-slate-100 hover:bg-slate-50'
+                        }`}
+                        title={isSelected ? 'Klik untuk membatalkan filter admin' : `Klik untuk memantau performa harian ${admin.name}`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center shrink-0 border ${
+                            idx < 3 ? medalColors[idx] : 'bg-slate-50 text-slate-400 border-slate-100'
+                          }`}>
+                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-xs truncate block leading-snug ${isSelected ? 'font-black text-indigo-950' : 'font-black text-slate-800'}`} title={admin.name}>
+                                {admin.name}
+                              </span>
+                              {isSelected && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-indigo-600 text-white font-black shrink-0">
+                                  Aktif
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-bold">
+                              {formatNumberIndo(admin.tx)} Nota • Rerata: {formatRupiahCompact(aov)}/nota
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0 font-mono">
+                          <span className={`text-xs block ${isSelected ? 'font-black text-indigo-950' : 'font-black text-slate-900'}`}>
+                            {formatRupiahCompact(admin.sales)}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-semibold block">
+                            {((admin.sales / totalRef) * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-5 border-t border-slate-100 pt-3 text-[11px] text-slate-400 font-semibold flex items-center justify-between">
+                <span>Total Nota Admin ({selectedMonthInfo.label}):</span>
+                <span className="font-black text-slate-700 font-mono">
+                  {formatNumberIndo(storeAndAdminStats.totalAdminTx || storeAndAdminStats.totalStoreTx)} Transaksi ({formatRupiahCompact(storeAndAdminStats.totalAdminSales)})
+                </span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Kolom 13 Status & Instan Rule Validation Banner */}
+          <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-100/80 rounded-3xl p-5 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 bg-emerald-600 text-white rounded-2xl shadow-sm shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-black uppercase text-emerald-950 tracking-wider">
+                    Sinkronisasi Kolom Sheet LIST MENU PENJUALAN Aktif
+                  </h5>
+                  <p className="text-xs text-emerald-800/90 font-medium mt-1 leading-relaxed">
+                    Aturan Pesanan Instan aktif: status <span className="font-extrabold text-emerald-950 bg-emerald-100/80 px-1.5 py-0.5 rounded">DIAMBIL</span> (Kolom 13) pada toko official (Kolom 6: ONLINE SHOPEE, ONLINE TIKTOK TOKOPEDIA BALIST, ONLINE SHOPEE GOMART, ONLINE TIKTOK TOPED GOMALL) dikelompokkan sebagai <strong>Pesanan Instan</strong> (21.639 Tx | Rp 3,16 Miliar | 64,1%). Kolom 10 mengalokasikan admin proses nota dan kolom 1 mengidentifikasi ID/No Nota.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* DoW Rank */}
@@ -927,7 +1293,7 @@ export default function SalesSummary({ salesData }: SalesSummaryProps) {
           </div>
 
           <p className="text-[11px] text-slate-400 font-semibold italic mt-4 border-t border-slate-100 pt-3">
-            Analisis data historis ini didasarkan sepenuhnya dari Google Sheet "Penjualan Harian".
+            Analisis data historis ini didasarkan sepenuhnya dari Google Sheet "LIST MENU PENJUALAN".
           </p>
         </div>
 

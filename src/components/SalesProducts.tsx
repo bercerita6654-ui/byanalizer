@@ -9,8 +9,9 @@ import {
   TrendingUp, BarChart2, DollarSign, Flame, FolderOpen, 
   RefreshCw, AlertCircle, Award, Check, SlidersHorizontal,
   ChevronLeft, ChevronRight, Download, X, Sparkles, TrendingDown, Zap,
-  Pin, Calendar, Copy, CheckCheck, Trash2, Layers
+  Pin, Calendar, Copy, CheckCheck, Trash2, Layers, Eye
 } from 'lucide-react';
+import { PdfPreviewModal, PdfPreviewData } from './PdfPreviewModal';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
   PieChart, Pie, Legend, LineChart, Line
@@ -175,6 +176,10 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
       return next;
     });
   };
+
+  // PDF Preview Modal State
+  const [pdfPreviewData, setPdfPreviewData] = useState<PdfPreviewData | null>(null);
+  const [isPdfPreviewOpen, setIsPdfPreviewOpen] = useState<boolean>(false);
 
   // Time-based filtering states (column 2 based daily/weekly/monthly filtering)
   const [timeFilterType, setTimeFilterType] = useState<'all' | 'daily' | 'weekly' | 'monthly'>('monthly');
@@ -1922,7 +1927,17 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
     else if (timeFilterType === 'monthly' && selectedMonth !== 'all') filterFilename = `Bulanan_${selectedMonth}`;
 
     const filename = `Laporan_Performa_Produk_${filterFilename}.pdf`;
-    doc.save(filename);
+    const blob = doc.output('blob');
+    const blobUrl = URL.createObjectURL(blob);
+    setPdfPreviewData({
+      blobUrl,
+      fileName: filename,
+      title: `Laporan Analisa Performa Produk (${filterFilename.replace(/_/g, ' ')})`,
+      pageCount: doc.getNumberOfPages(),
+      fileSizeBytes: blob.size,
+      onDownloadConfirm: () => doc.save(filename)
+    });
+    setIsPdfPreviewOpen(true);
   };
 
   return (
@@ -1973,8 +1988,8 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
             disabled={isLoading || !stats}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer shadow-sm disabled:pointer-events-none"
           >
-            <Download className="w-3.5 h-3.5" />
-            Unduh Analisa Produk PDF
+            <Eye className="w-3.5 h-3.5" />
+            Pratinjau &amp; Unduh Produk (PDF)
           </button>
 
           <button
@@ -5220,6 +5235,13 @@ export default function SalesProducts({ onOpenWeeklyReport }: SalesProductsProps
           </div>
         </div>
       )}
+
+      {/* PDF Document Preview Modal */}
+      <PdfPreviewModal
+        isOpen={isPdfPreviewOpen}
+        data={pdfPreviewData}
+        onClose={() => setIsPdfPreviewOpen(false)}
+      />
 
     </div>
   );

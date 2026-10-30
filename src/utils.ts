@@ -1,4 +1,40 @@
-import { DailySales, MarketingEvent, ProductPerformance } from './types';
+import { DailySales, MarketingEvent, ProductPerformance, SalesOrder } from './types';
+
+// Helper to normalize Google Sheet URLs to CSV export format
+export function normalizeGoogleSheetUrl(url: string): string {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (trimmed.includes('export?format=csv') || trimmed.includes('/pub?')) {
+    return trimmed;
+  }
+  const match = trimmed.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (match) {
+    const sheetId = match[1];
+    const sheetMatch = trimmed.match(/[?&#]sheet=([^&#]+)/);
+    const gidMatch = trimmed.match(/[?&#]gid=([0-9]+)/);
+    if (sheetMatch) {
+      return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${sheetMatch[1]}`;
+    }
+    // GID 287037765 corresponds directly to sheet "LIST MENU PENJUALAN"
+    const gid = gidMatch ? gidMatch[1] : '287037765';
+    return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+  }
+  return trimmed;
+}
+
+// Customers that count as Instan if Status === 'DIAMBIL'
+export const INSTAN_CUSTOMERS = [
+  'ONLINE TIKTOK TOKOPEDIA BALIST',
+  'ONLINE SHOPEE',
+  'ONLINE SHOPEE GOMART',
+  'ONLINE TIKTOK TOPED GOMALL'
+] as const;
+
+export function isInstanCustomer(customer: string): boolean {
+  if (!customer) return false;
+  const upper = customer.trim().toUpperCase().replace(/\s+/g, ' ');
+  return INSTAN_CUSTOMERS.some(c => c === upper);
+}
 
 // Helper to parse double-quoted CSV fields correctly
 export function parseCSVRow(rowStr: string): string[] {
@@ -9,7 +45,12 @@ export function parseCSVRow(rowStr: string): string[] {
   for (let i = 0; i < rowStr.length; i++) {
     const char = rowStr[i];
     if (char === '"') {
-      insideQuote = !insideQuote;
+      if (insideQuote && rowStr[i + 1] === '"') {
+        currentVal += '"';
+        i++;
+      } else {
+        insideQuote = !insideQuote;
+      }
     } else if (char === ',' && !insideQuote) {
       result.push(currentVal.trim());
       currentVal = '';
@@ -21,17 +62,28 @@ export function parseCSVRow(rowStr: string): string[] {
   return result.map(v => v.replace(/^"|"$/g, '').trim());
 }
 
-// Convert DD/MM/YYYY to YYYY-MM-DD
+// Convert DD/MM/YYYY or ISO to YYYY-MM-DD
 export function parseCSVDate(dateStr: string): string | null {
   if (!dateStr) return null;
-  const parts = dateStr.split('/');
-  if (parts.length !== 3) return null;
-  
-  const day = parts[0].padStart(2, '0');
-  const month = parts[1].padStart(2, '0');
-  const year = parts[2];
-  
-  return `${year}-${month}-${day}`;
+  const clean = dateStr.trim();
+  // Standard ISO format YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    return clean;
+  }
+  // ISO with timestamp e.g. "2026-10-30 11:29:21"
+  if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+    return clean.substring(0, 10);
+  }
+  // DD/MM/YYYY
+  const parts = clean.split('/');
+  if (parts.length === 3) {
+    const day = parts[0].padStart(2, '0');
+    const month = parts[1].padStart(2, '0');
+    let year = parts[2];
+    if (year.length === 2) year = '20' + year;
+    return `${year}-${month}-${day}`;
+  }
+  return parseIndonesianDate(clean);
 }
 
 // Convert Indonesian textual dates like "28 Mei 26" to YYYY-MM-DD
@@ -73,15 +125,49 @@ export function parseIndonesianDate(dateStr: string): string | null {
   return `${year}-${month}-${day}`;
 }
 
-// Parse Indonesian currency/numbers (e.g., "14.229.013" or "Rp 14.229.013" to number)
-export function parseNumber(valStr: string): number {
+// Parse Indonesian or standard float currency/numbers (handles 82500.00, 82.500, 82.500,00, etc.)
+export function parseNumber(valStr: string | number | undefined | null): number {
+  if (typeof valStr === 'number') return isNaN(valStr) ? 0 : valStr;
   if (!valStr) return 0;
-  // Remove currency signs, whitespace, and thousands separators (dots)
-  const clean = valStr
-    .replace(/Rp/gi, '')
-    .replace(/\s+/g, '')
-    .replace(/\./g, '')
-    .replace(/,/g, '.'); // Convert Indonesian decimal commas if any
+  const s = String(valStr).replace(/Rp/gi, '').trim();
+  if (!s || s === '-') return 0;
+
+  // Case 1: Both dot and comma present (e.g. "82.500,00" Indonesian or "82,500.00" US)
+  if (s.includes('.') && s.includes(',')) {
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+      // Indonesian format: dot is thousands, comma is decimal
+      return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+    } else {
+      // US format: comma is thousands, dot is decimal
+      return parseFloat(s.replace(/,/g, '')) || 0;
+    }
+  }
+
+  // Case 2: Only comma present (e.g. "82,500" US thousands or "82500,00" Indonesian decimal)
+  if (s.includes(',') && !s.includes('.')) {
+    const parts = s.split(',');
+    if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {
+      return parseFloat(s.replace(/,/g, '')) || 0;
+    }
+    return parseFloat(s.replace(',', '.')) || 0;
+  }
+
+  // Case 3: Only dot present (e.g. "82500.00" US decimal vs "82.500" Indonesian thousands)
+  if (s.includes('.') && !s.includes(',')) {
+    const parts = s.split('.');
+    // Multiple dots e.g. "1.500.000" -> dots are thousands
+    if (parts.length > 2) {
+      return parseFloat(s.replace(/\./g, '')) || 0;
+    }
+    // Single dot with exactly 3 digits after dot, and before dot is 1..3 digits: "82.500" -> 82500
+    if (parts.length === 2 && parts[1].length === 3 && parts[0].length >= 1 && parts[0].length <= 3) {
+      return parseFloat(s.replace(/\./g, '')) || 0;
+    }
+    // e.g. "82500.00" -> 2 decimals, dot is decimal separator -> 82500
+    return parseFloat(s) || 0;
+  }
+
+  const clean = s.replace(/\s+/g, '');
   const parsed = parseFloat(clean);
   return isNaN(parsed) ? 0 : parsed;
 }
@@ -97,29 +183,30 @@ export function parseProductNumber(valStr: string): number {
   return isNaN(parsed) ? 0 : parsed;
 }
 
-// Format numbers to Indonesian Currency
-export function formatRupiah(value: number): string {
-  if (value === undefined || value === null || isNaN(value)) return 'Rp 0';
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
+// Format numbers to Indonesian standard thousand dots: e.g. 82500.00 -> "82.500"
+export function formatNumberIndo(num: number | string | undefined | null): string {
+  if (num === undefined || num === null || num === '') return '0';
+  const val = typeof num === 'number' ? num : parseNumber(num);
+  if (isNaN(val)) return '0';
+  const rounded = Math.round(val);
+  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+// Format numbers to Indonesian Currency: e.g. 82500.00 -> "Rp 82.500"
+export function formatRupiah(value: number | string | undefined | null): string {
+  if (value === undefined || value === null || value === '') return 'Rp 0';
+  const val = typeof value === 'number' ? value : parseNumber(value);
+  if (isNaN(val)) return 'Rp 0';
+  return `Rp ${formatNumberIndo(val)}`;
 }
 
 // Compact currency formatting for charts (e.g. 14.2jt)
 export function formatRupiahCompact(value: number): string {
   if (!value || isNaN(value)) return 'Rp 0';
-  if (value >= 1000000000) return `Rp ${(value / 1000000000).toFixed(1)}M`;
-  if (value >= 1000000) return `Rp ${(value / 1000000).toFixed(1)}jt`;
-  if (value >= 1000) return `Rp ${(value / 1000).toFixed(0)}rb`;
-  return `Rp ${value}`;
-}
-
-export function formatNumberIndo(num: number): string {
-  if (num === undefined || num === null || isNaN(num)) return '0';
-  return new Intl.NumberFormat('id-ID').format(num);
+  if (value >= 1000000000) return `Rp ${(value / 1000000000).toFixed(1).replace('.', ',')}M`;
+  if (value >= 1000000) return `Rp ${(value / 1000000).toFixed(1).replace('.', ',')}jt`;
+  if (value >= 1000) return `Rp ${formatNumberIndo(Math.round(value / 1000))}rb`;
+  return `Rp ${formatNumberIndo(value)}`;
 }
 
 export function formatDateIndo(dateStr: string): string {
@@ -135,23 +222,115 @@ export function formatDateIndo(dateStr: string): string {
 }
 
 // Parse Google Sheet Sales CSV
+// Specifically optimized for sheet "LIST MENU PENJUALAN":
+// Kolom 1 (Index 0): No. Nota / ID
+// Kolom 3 (Index 2): Tanggal
+// Kolom 5 (Index 4): No. Pemesanan
+// Kolom 6 (Index 5): Nama Toko Online (Customer)
+// Kolom 8 (Index 7): Total Nominal
+// Kolom 10 (Index 9): Admin yang Proses Nota (Created by)
+// Kolom 13 (Index 12): Status
+// Kolom 16 (Index 15): Void
 export function parseDailySalesCSV(text: string): DailySales[] {
   const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
   if (lines.length < 2) return [];
   
-  // Find where header row starts (sometimes there are empty rows or title rows at top)
+  // Find where header row starts
   let headerIdx = 0;
   for (let i = 0; i < Math.min(5, lines.length); i++) {
     const row = parseCSVRow(lines[i]);
-    if (row.some(col => col.toLowerCase().includes('tanggal') || col.toLowerCase().includes('instan'))) {
+    if (row.some(col => {
+      const lower = col.toLowerCase();
+      return lower.includes('tanggal') || lower.includes('date') || lower.includes('customer') || lower.includes('instan') || lower.includes('created');
+    })) {
       headerIdx = i;
       break;
     }
   }
 
+  const rawHeaders = parseCSVRow(lines[headerIdx]);
+  const headers = rawHeaders.map(h => h.toLowerCase());
+
+  // Detect whether this is the Raw Transactions format (LIST MENU PENJUALAN)
+  const isRawFormat = headers.some(h => h === 'customer' || h.includes('pelanggan') || h === 'id') &&
+                      headers.some(h => h === 'status' || h.includes('total'));
+
+  if (isRawFormat) {
+    // Dynamic index resolution with explicit column defaults (Kolom 1..N = Index 0..N-1)
+    const dateIdx = headers.findIndex(h => h === 'tanggal' || h === 'date' || h === 'tgl');
+    const custIdx = headers.findIndex(h => h === 'customer' || h.includes('toko') || h.includes('pelanggan'));
+    const statusIdx = headers.findIndex(h => h === 'status');
+    const totalIdx = headers.findIndex(h => h === 'total' || h.includes('nominal'));
+    const voidIdx = headers.findIndex(h => h === 'void');
+
+    const effectiveDateIdx = dateIdx !== -1 ? dateIdx : 2; // Kolom ke-3
+    const effectiveCustIdx = custIdx !== -1 ? custIdx : 5; // Kolom ke-6
+    const effectiveTotalIdx = totalIdx !== -1 ? totalIdx : 7; // Kolom ke-8
+    const effectiveStatusIdx = statusIdx !== -1 ? statusIdx : 12; // Kolom ke-13
+    const effectiveVoidIdx = voidIdx !== -1 ? voidIdx : 15; // Kolom ke-16
+
+    const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const dateMap: Record<string, DailySales> = {};
+
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const row = parseCSVRow(lines[i]);
+      if (row.length < 3) continue;
+
+      // Skip voided transactions (e.g. Void === 'TRUE')
+      if (effectiveVoidIdx < row.length && (row[effectiveVoidIdx] || '').trim().toUpperCase() === 'TRUE') {
+        continue;
+      }
+
+      const rawDate = row[effectiveDateIdx];
+      if (!rawDate) continue;
+      const parsedDate = parseCSVDate(rawDate);
+      if (!parsedDate) continue;
+
+      const total = parseNumber(row[effectiveTotalIdx]);
+      const customer = (row[effectiveCustIdx] || '').trim().toUpperCase();
+      const status = (row[effectiveStatusIdx] || '').trim().toUpperCase();
+
+      if (!dateMap[parsedDate]) {
+        dateMap[parsedDate] = {
+          date: parsedDate,
+          txInstan: 0,
+          totalInstan: 0,
+          txReguler: 0,
+          totalReguler: 0,
+          txManual: 0,
+          totalManual: 0,
+          txAll: 0,
+          totalAll: 0,
+          dayOfWeek: ''
+        };
+      }
+
+      const d = dateMap[parsedDate];
+      if (customer.includes('MANUAL')) {
+        d.txManual += 1;
+        d.totalManual += total;
+      } else if (isInstanCustomer(customer) && status === 'DIAMBIL') {
+        d.txInstan += 1;
+        d.totalInstan += total;
+      } else {
+        d.txReguler += 1;
+        d.totalReguler += total;
+      }
+    }
+
+    const result = Object.values(dateMap).map(d => {
+      d.txAll = d.txInstan + d.txReguler + d.txManual;
+      d.totalAll = Math.round(d.totalInstan + d.totalReguler + d.totalManual);
+      const dateObj = new Date(d.date);
+      d.dayOfWeek = daysIndo[dateObj.getDay()] || '';
+      return d;
+    }).sort((a, b) => a.date.localeCompare(b.date));
+
+    return result;
+  }
+
+  // Fallback: Legacy Pre-Aggregated Sheet Format
   const result: DailySales[] = [];
-  const headers = parseCSVRow(lines[headerIdx]).map(h => h.toLowerCase());
-  
   const dateIdx = headers.findIndex(h => h.includes('tanggal') || h.includes('date') || h.includes('tgl'));
   const txInstanIdx = headers.findIndex(h => h.includes('transaksi instan'));
   const totInstanIdx = headers.findIndex(h => h.includes('total instan'));
@@ -184,7 +363,6 @@ export function parseDailySalesCSV(text: string): DailySales[] {
     const txAll = txAllIdx !== -1 ? parseNumber(row[txAllIdx]) : (txInstan + txReguler + txManual);
     const totalAll = totAllIdx !== -1 ? parseNumber(row[totAllIdx]) : (totalInstan + totalReguler + totalManual);
 
-    // Day of week name in Indonesian
     const dateObj = new Date(parsedDate);
     const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
     const dayOfWeek = daysIndo[dateObj.getDay()];
@@ -203,8 +381,133 @@ export function parseDailySalesCSV(text: string): DailySales[] {
     });
   }
 
-  // Sort by date ascending
   return result.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Parse Individual Sales Orders from sheet "LIST MENU PENJUALAN"
+// Explicit Column Mappings:
+// Kolom 1 (Index 0): No Nota / ID (e.g. "ONL.2610.03117")
+// Kolom 2 (Index 1): Tgl Input
+// Kolom 3 (Index 2): Tanggal
+// Kolom 4 (Index 3): No. SO
+// Kolom 5 (Index 4): No Pemesanan (e.g. "586864942941505492")
+// Kolom 6 (Index 5): Nama Toko Online nya (Customer)
+// Kolom 7 (Index 6): Kepada
+// Kolom 8 (Index 7): Total Nominal
+// Kolom 9 (Index 8): Type
+// Kolom 10 (Index 9): Admin yang proses nota (Created by)
+// Kolom 11 (Index 10): Sales
+// Kolom 13 (Index 12): Status
+// Kolom 16 (Index 15): Void
+export function parseSalesOrders(text: string, maxRows: number = 100000): SalesOrder[] {
+  const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+  if (lines.length < 2) return [];
+
+  let headerIdx = 0;
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    const row = parseCSVRow(lines[i]);
+    if (row.some(col => col.toLowerCase().includes('customer') || col.toLowerCase().includes('status') || col.toLowerCase().includes('created'))) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  const rawHeaders = parseCSVRow(lines[headerIdx]);
+  const headers = rawHeaders.map(h => h.toLowerCase());
+
+  // Find column indices dynamically with user's exact 1-indexed column numbering as direct defaults
+  const dateIdx = headers.findIndex(h => h === 'tanggal' || h === 'date');
+  const custIdx = headers.findIndex(h => h === 'customer' || h.includes('toko'));
+  const statusIdx = headers.findIndex(h => h === 'status');
+  const totalIdx = headers.findIndex(h => h === 'total' || h.includes('nominal'));
+  const adminIdx = headers.findIndex(h => h.includes('created') || h.includes('admin'));
+  const voidIdx = headers.findIndex(h => h === 'void');
+
+  // Exact indices:
+  // Kolom 1 = Index 0 (No Nota)
+  // Kolom 2 = Index 1 (Tgl Input)
+  // Kolom 3 = Index 2 (Tanggal)
+  // Kolom 4 = Index 3 (No. SO)
+  // Kolom 5 = Index 4 (No Pemesanan)
+  // Kolom 6 = Index 5 (Nama Toko Online)
+  // Kolom 7 = Index 6 (Kepada)
+  // Kolom 8 = Index 7 (Total Nominal)
+  // Kolom 9 = Index 8 (Type)
+  // Kolom 10 = Index 9 (Admin proses nota)
+  // Kolom 11 = Index 10 (Sales)
+  // Kolom 13 = Index 12 (Status)
+  // Kolom 16 = Index 15 (Void)
+  const idxNoNota = 0; // Kolom 1
+  const idxTglInput = 1; // Kolom 2
+  const idxTanggal = dateIdx !== -1 ? dateIdx : 2; // Kolom 3
+  const idxNoSo = 3; // Kolom 4
+  const idxNoPemesanan = 4; // Kolom 5
+  const idxNamaToko = custIdx !== -1 ? custIdx : 5; // Kolom 6
+  const idxKepada = 6; // Kolom 7
+  const idxTotalNominal = totalIdx !== -1 ? totalIdx : 7; // Kolom 8
+  const idxType = 8; // Kolom 9
+  const idxAdmin = adminIdx !== -1 ? adminIdx : 9; // Kolom 10
+  const idxSales = 10; // Kolom 11
+  const idxStatus = statusIdx !== -1 ? statusIdx : 12; // Kolom 13
+  const idxVoid = voidIdx !== -1 ? voidIdx : 15; // Kolom 16
+
+  const orders: SalesOrder[] = [];
+  const limit = Math.min(lines.length, headerIdx + 1 + maxRows);
+
+  for (let i = headerIdx + 1; i < limit; i++) {
+    const row = parseCSVRow(lines[i]);
+    if (row.length < 3) continue;
+
+    const noNota = (row[idxNoNota] || `ORD-${i}`).trim();
+    const tglInput = (row[idxTglInput] || '').trim();
+    const rawDate = (row[idxTanggal] || '').trim();
+    const parsedDate = parseCSVDate(rawDate) || rawDate;
+    const noSo = (row[idxNoSo] || '').trim();
+    const noPemesanan = (row[idxNoPemesanan] || '').trim();
+    const tokoOnline = (row[idxNamaToko] || '').trim();
+    const kepada = (row[idxKepada] || '').trim();
+    const total = parseNumber(row[idxTotalNominal]);
+    const type = (row[idxType] || '').trim();
+    const admin = (row[idxAdmin] || '').trim();
+    const sales = (row[idxSales] || '').trim();
+    const status = (row[idxStatus] || '').trim();
+    const isVoid = idxVoid < row.length ? (row[idxVoid] || '').trim().toUpperCase() === 'TRUE' : false;
+
+    // Rule:
+    // Status DIAMBIL + tokoOnline in INSTAN_CUSTOMERS => Pesanan Instan
+    // tokoOnline includes MANUAL => Pesanan Manual
+    // Others => Pesanan Reguler
+    let orderCategory: 'instan' | 'reguler' | 'manual' = 'reguler';
+    if (tokoOnline.toUpperCase().includes('MANUAL')) {
+      orderCategory = 'manual';
+    } else if (isInstanCustomer(tokoOnline) && status.toUpperCase() === 'DIAMBIL') {
+      orderCategory = 'instan';
+    } else {
+      orderCategory = 'reguler';
+    }
+
+    orders.push({
+      id: noNota,
+      noNota,
+      tglInput,
+      date: parsedDate,
+      noSo,
+      noPemesanan,
+      tokoOnline,
+      customer: tokoOnline,
+      kepada,
+      total,
+      type,
+      admin,
+      createdBy: admin,
+      sales,
+      status,
+      isVoid,
+      orderCategory
+    });
+  }
+
+  return orders;
 }
 
 // Calendar Grid generator

@@ -1,8 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { DailySales, MarketingEvent, ViewTab } from './types';
-import { parseDailySalesCSV, generateSampleMarketingEvents, formatDateIndo, formatRupiah, formatNumberIndo } from './utils';
-import { getSalesCache, setSalesCache } from './dbCache';
+import { DailySales, MarketingEvent, ViewTab, SalesOrder } from './types';
+import { 
+  parseDailySalesCSV, 
+  parseSalesOrders,
+  normalizeGoogleSheetUrl,
+  generateSampleMarketingEvents, 
+  formatDateIndo, 
+  formatRupiah, 
+  formatNumberIndo 
+} from './utils';
+import { getSalesCache, setSalesCache, getOrdersCache, setOrdersCache } from './dbCache';
 import SalesSummary from './components/SalesSummary';
 import SalesMoM from './components/SalesMoM';
 import SalesCharts from './components/SalesCharts';
@@ -17,17 +25,20 @@ import SalesReportModal from './components/SalesReportModal';
 import SalesProducts from './components/SalesProducts';
 import SalesHeatmap from './components/SalesHeatmap';
 import { SyncProgressIndicator, SyncProgressState } from './components/SyncProgressIndicator';
+import { PdfPreviewModal, PdfPreviewData } from './components/PdfPreviewModal';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { 
   TrendingUp, Calendar, Table, Target, BarChart2, 
   RefreshCw, Link as LinkIcon, HelpCircle, CheckCircle2, 
   Sparkles, FileSpreadsheet, PlusCircle, AlertCircle, FileText,
-  Package, Download, X, GripVertical, ArrowUp, ArrowDown, RotateCcw
+  Package, Download, X, GripVertical, ArrowUp, ArrowDown, RotateCcw,
+  Eye, Zap, UserCheck, ChevronDown
 } from 'lucide-react';
 
 
-const DEFAULT_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=21254849&single=true&output=csv';
+const OLD_DEFAULT_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=21254849&single=true&output=csv';
+export const DEFAULT_CSV_URL = 'https://docs.google.com/spreadsheets/d/1HSUiF20wpTJbfYdpOE08gtbRzm1N8IXOrZDs-KGSvnI/export?format=csv&gid=287037765';
 
 function oklchToRgb(oklchStr: string): string {
   const regex = /oklch\(\s*([\d.]+%?)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)/i;
@@ -194,8 +205,15 @@ const DEFAULT_DASHBOARD_ORDER = [
 
 export default function App() {
   const [csvUrl, setCsvUrl] = useState<string>(() => {
-    return localStorage.getItem('sales_csv_url') || DEFAULT_CSV_URL;
+    const saved = localStorage.getItem('sales_csv_url');
+    if (!saved || saved === OLD_DEFAULT_CSV_URL || saved.includes('gid=21254849')) {
+      localStorage.setItem('sales_csv_url', DEFAULT_CSV_URL);
+      return DEFAULT_CSV_URL;
+    }
+    return normalizeGoogleSheetUrl(saved);
   });
+
+  const [rawOrders, setRawOrders] = useState<SalesOrder[]>([]);
 
   const [dashboardOrder, setDashboardOrder] = useState<string[]>(() => {
     try {
@@ -308,11 +326,16 @@ export default function App() {
   // Global date range filters
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
+  const [selectedAdmin, setSelectedAdmin] = useState<string>('');
 
   // PDF download date filters modal state
   const [isPdfDownloadModalOpen, setIsPdfDownloadModalOpen] = useState<boolean>(false);
   const [pdfStartDate, setPdfStartDate] = useState<string>('');
   const [pdfEndDate, setPdfEndDate] = useState<string>('');
+
+  // PDF live preview modal state
+  const [pdfPreviewData, setPdfPreviewData] = useState<PdfPreviewData | null>(null);
+  const [isPdfPreviewOpen, setIsPdfPreviewOpen] = useState<boolean>(false);
 
   const handleOpenPdfDownloadModal = () => {
     setPdfStartDate(filterStartDate || dateRangeBounds.min);
@@ -336,9 +359,11 @@ export default function App() {
   };
 
   // Fetch data from CSV Google Sheet with progress & duration estimation
-  const fetchData = async (urlToFetch: string, forceNetwork: boolean = false) => {
+  const fetchData = async (rawUrlToFetch: string, forceNetwork: boolean = false) => {
     setIsLoading(true);
     setIsError(null);
+
+    const urlToFetch = normalizeGoogleSheetUrl(rawUrlToFetch);
 
     const startTime = Date.now();
     setSyncProgress({
@@ -382,6 +407,10 @@ export default function App() {
         }));
         const cachedData = await getSalesCache(urlToFetch);
         if (cachedData && cachedData.length > 0) {
+          const cachedOrders = await getOrdersCache(urlToFetch);
+          if (cachedOrders && cachedOrders.length > 0) {
+            setRawOrders(cachedOrders);
+          }
           clearInterval(progressTimer);
           const elapsed = (Date.now() - startTime) / 1000;
           setSyncProgress({
@@ -397,7 +426,7 @@ export default function App() {
           setSalesData(cachedData);
           setIsUsingCache(true);
           setIsLoading(false);
-          showToast("Data penjualan dimuat instan dari cache lokal!", "success");
+          showToast("Data penjualan dimuat instan dari cache!", "success");
           setTimeout(() => {
             setSyncProgress(prev => ({ ...prev, isActive: false }));
           }, 600);
@@ -456,6 +485,9 @@ export default function App() {
         throw new Error('Gagal memproses data atau format baris tidak dikenali. Pastikan kolom sesuai.');
       }
 
+      const orders = parseSalesOrders(text);
+      setRawOrders(orders);
+
       setSyncProgress(prev => ({
         ...prev,
         stage: 'indexing',
@@ -468,6 +500,7 @@ export default function App() {
 
       setSalesData(parsed);
       await setSalesCache(urlToFetch, parsed);
+      await setOrdersCache(urlToFetch, orders);
       setIsUsingCache(false);
       localStorage.setItem('sales_csv_url', urlToFetch);
 
@@ -543,8 +576,81 @@ export default function App() {
     showToast("Event kegiatan berhasil dihapus", "success");
   };
 
+  // Extract unique admins from Kolom 10 of LIST MENU PENJUALAN
+  const adminList = useMemo(() => {
+    if (!rawOrders || rawOrders.length === 0) return [];
+    const map = new Map<string, { name: string; count: number; sales: number }>();
+    rawOrders.forEach(ord => {
+      if (ord.isVoid) return;
+      const name = (ord.admin || ord.createdBy || '').trim();
+      if (!name || name === '-' || name.toLowerCase() === 'lainnya') return;
+      if (!map.has(name)) {
+        map.set(name, { name, count: 0, sales: 0 });
+      }
+      const item = map.get(name)!;
+      item.count += 1;
+      item.sales += ord.total || 0;
+    });
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [rawOrders]);
+
+  // If a specific admin is selected, aggregate daily sales strictly for that admin's processed orders
+  const baseSalesData = useMemo(() => {
+    if (!selectedAdmin || rawOrders.length === 0) {
+      return salesData;
+    }
+    
+    const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const dateMap: Record<string, DailySales> = {};
+    
+    rawOrders.forEach(ord => {
+      if (ord.isVoid) return;
+      const adminName = (ord.admin || ord.createdBy || '').trim();
+      if (adminName !== selectedAdmin) return;
+      
+      const parsedDate = ord.date;
+      if (!parsedDate) return;
+      
+      if (!dateMap[parsedDate]) {
+        dateMap[parsedDate] = {
+          date: parsedDate,
+          txInstan: 0,
+          totalInstan: 0,
+          txReguler: 0,
+          totalReguler: 0,
+          txManual: 0,
+          totalManual: 0,
+          txAll: 0,
+          totalAll: 0,
+          dayOfWeek: ''
+        };
+      }
+      
+      const d = dateMap[parsedDate];
+      const total = ord.total || 0;
+      if (ord.orderCategory === 'manual') {
+        d.txManual += 1;
+        d.totalManual += total;
+      } else if (ord.orderCategory === 'instan') {
+        d.txInstan += 1;
+        d.totalInstan += total;
+      } else {
+        d.txReguler += 1;
+        d.totalReguler += total;
+      }
+    });
+
+    return Object.values(dateMap).map(d => {
+      d.txAll = d.txInstan + d.txReguler + d.txManual;
+      d.totalAll = Math.round(d.totalInstan + d.totalReguler + d.totalManual);
+      const dateObj = new Date(d.date);
+      d.dayOfWeek = daysIndo[dateObj.getDay()] || '';
+      return d;
+    }).sort((a, b) => a.date.localeCompare(b.date));
+  }, [salesData, rawOrders, selectedAdmin]);
+
   const filteredSalesData = useMemo(() => {
-    let result = salesData;
+    let result = baseSalesData;
     if (filterStartDate) {
       result = result.filter(day => day.date >= filterStartDate);
     }
@@ -552,7 +658,12 @@ export default function App() {
       result = result.filter(day => day.date <= filterEndDate);
     }
     return result;
-  }, [salesData, filterStartDate, filterEndDate]);
+  }, [baseSalesData, filterStartDate, filterEndDate]);
+
+  const filteredRawOrders = useMemo(() => {
+    if (!selectedAdmin) return rawOrders;
+    return rawOrders.filter(ord => (ord.admin || ord.createdBy || '').trim() === selectedAdmin);
+  }, [rawOrders, selectedAdmin]);
 
   const dateRangeBounds = useMemo(() => {
     if (salesData.length === 0) return { min: '', max: '' };
@@ -562,7 +673,7 @@ export default function App() {
     };
   }, [salesData]);
 
-  const handlePreset = (preset: 'all' | '7days' | '30days' | 'q1' | 'q2' | 'thisMonth') => {
+  const handlePreset = (preset: 'all' | '7days' | '30days' | 'q1' | 'q2' | 'q3' | 'q4' | 'thisMonth') => {
     if (salesData.length === 0) return;
     
     const minDateStr = salesData[0].date;
@@ -579,6 +690,14 @@ export default function App() {
       const year = maxDateStr.substring(0, 4);
       setFilterStartDate(`${year}-04-01`);
       setFilterEndDate(`${year}-06-30`);
+    } else if (preset === 'q3') {
+      const year = maxDateStr.substring(0, 4);
+      setFilterStartDate(`${year}-07-01`);
+      setFilterEndDate(`${year}-09-30`);
+    } else if (preset === 'q4') {
+      const year = maxDateStr.substring(0, 4);
+      setFilterStartDate(`${year}-10-01`);
+      setFilterEndDate(`${year}-12-31`);
     } else if (preset === '30days') {
       const maxDate = new Date(maxDateStr);
       const startDateObj = new Date(maxDate);
@@ -801,9 +920,20 @@ export default function App() {
       doc.text('Halaman 2 dari 2', pdfWidth / 2, pdfHeight - 10, { align: 'center' });
 
       const filterRangeName = tempStart && tempEnd ? `_${tempStart}_to_${tempEnd}` : '';
-      doc.save(`Ringkasan_Dashboard${filterRangeName}.pdf`);
+      const fileName = `Ringkasan_Dashboard${filterRangeName}.pdf`;
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPdfPreviewData({
+        blobUrl,
+        fileName,
+        title: 'Ringkasan Eksekutif Dashboard Penjualan',
+        pageCount: doc.getNumberOfPages(),
+        fileSizeBytes: blob.size,
+        onDownloadConfirm: () => doc.save(fileName)
+      });
+      setIsPdfPreviewOpen(true);
 
-      showToast('Berhasil mengunduh ringkasan PDF!', 'success');
+      showToast('Pratinjau PDF siap diperiksa!', 'success');
     } catch (err: any) {
       console.error(err);
       showToast(err.message || 'Gagal mengunduh ringkasan PDF.', 'error');
@@ -913,15 +1043,23 @@ export default function App() {
 
     switch (id) {
       case 'summary':
-        return wrapComponent(<SalesSummary salesData={filteredSalesData} />);
+        return wrapComponent(
+          <SalesSummary 
+            salesData={filteredSalesData} 
+            rawOrders={filteredRawOrders} 
+            allOrders={rawOrders}
+            selectedAdmin={selectedAdmin}
+            onSelectAdmin={setSelectedAdmin}
+          />
+        );
       case 'mom':
-        return wrapComponent(<SalesMoM salesData={salesData} />);
+        return wrapComponent(<SalesMoM salesData={baseSalesData} />);
       case 'comparison':
-        return wrapComponent(<SalesComparison salesData={salesData} />);
+        return wrapComponent(<SalesComparison salesData={baseSalesData} />);
       case 'channel':
         return wrapComponent(
           <div className="pt-4 border-t border-slate-200/50">
-            <SalesChannelComposition salesData={salesData} />
+            <SalesChannelComposition salesData={baseSalesData} />
           </div>
         );
       case 'charts':
@@ -1100,7 +1238,7 @@ export default function App() {
           <SyncProgressIndicator
             progress={syncProgress}
             variant="card"
-            sheetTitle="Google Sheet Penjualan (Harian)"
+            sheetTitle="Google Sheet: LIST MENU PENJUALAN"
           />
         )}
 
@@ -1109,7 +1247,7 @@ export default function App() {
           <SyncProgressIndicator
             progress={syncProgress}
             variant="modal"
-            sheetTitle="Google Sheet Penjualan (Harian)"
+            sheetTitle="Google Sheet: LIST MENU PENJUALAN"
           />
         )}
 
@@ -1146,7 +1284,7 @@ export default function App() {
                 <div>
                   <h3 className="text-sm font-black text-indigo-950 tracking-tight leading-snug">Visualisasi Penjualan Aktif Berhasil Dimuat</h3>
                   <p className="text-xs text-indigo-700/80 font-semibold mt-0.5 leading-relaxed">
-                    Menganalisa total <span className="font-extrabold text-indigo-950">{salesData.length} records</span> harian dari sheet "Penjualan Harian". Klik tab untuk menavigasi ke kalender event, rincian data table, dan simulasi target.
+                    Menganalisa total <span className="font-extrabold text-indigo-950">{salesData.length} records</span> harian dari sheet "LIST MENU PENJUALAN". Klik tab untuk menavigasi ke kalender event, rincian data table, dan simulasi target.
                   </p>
                 </div>
               </div>
@@ -1195,6 +1333,36 @@ export default function App() {
                           onChange={e => setFilterEndDate(e.target.value)}
                           className="text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-slate-800"
                         />
+                      </div>
+
+                      {/* Dropdown Filter Admin (Kolom 10) */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1">
+                          <UserCheck className="w-3.5 h-3.5 text-indigo-500" />
+                          Admin
+                        </span>
+                        <div className="relative">
+                          <select
+                            value={selectedAdmin}
+                            onChange={e => setSelectedAdmin(e.target.value)}
+                            className={`text-xs font-bold pl-3 pr-8 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all appearance-none cursor-pointer max-w-[210px] truncate ${
+                              selectedAdmin
+                                ? 'bg-indigo-50/90 border-indigo-300 text-indigo-900 font-extrabold shadow-sm ring-1 ring-indigo-300'
+                                : 'bg-slate-50 border-slate-200 text-slate-700'
+                            }`}
+                            title="Filter performa harian berdasarkan admin (Kolom 10)"
+                          >
+                            <option value="">Semua Admin ({formatNumberIndo(rawOrders.length)} Nota)</option>
+                            {adminList.map(a => (
+                              <option key={a.name} value={a.name}>
+                                {a.name} ({formatNumberIndo(a.count)} Nota)
+                              </option>
+                            ))}
+                          </select>
+                          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1247,11 +1415,27 @@ export default function App() {
                       Q2 (Apr-Jun)
                     </button>
 
-                    {(filterStartDate || filterEndDate) && (
+                    <button
+                      onClick={() => handlePreset('q3')}
+                      className="px-3 py-1.5 rounded-xl text-[10px] font-extrabold uppercase tracking-wider border bg-slate-50 border-slate-200/60 text-slate-500 hover:text-slate-800 transition-all"
+                    >
+                      Q3 (Jul-Sep)
+                    </button>
+
+                    <button
+                      onClick={() => handlePreset('q4')}
+                      className="px-3 py-1.5 rounded-xl text-[10px] font-extrabold uppercase tracking-wider border bg-slate-50 border-slate-200/60 text-slate-500 hover:text-slate-800 transition-all"
+                    >
+                      Q4 (Okt-Des)
+                    </button>
+
+                    {(filterStartDate || filterEndDate || selectedAdmin) && (
                       <button
-                        onClick={() => { setFilterStartDate(''); setFilterEndDate(''); }}
-                        className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-rose-600 hover:bg-rose-50 border border-rose-200/50 transition-all"
+                        onClick={() => { setFilterStartDate(''); setFilterEndDate(''); setSelectedAdmin(''); }}
+                        className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-rose-600 hover:bg-rose-50 border border-rose-200/50 transition-all flex items-center gap-1 cursor-pointer"
+                        title="Reset semua filter tanggal dan admin"
                       >
+                        <X className="w-3 h-3" />
                         Reset
                       </button>
                     )}
@@ -1262,11 +1446,27 @@ export default function App() {
                 {/* Range summary status badge */}
                 {filterSummary && (
                   <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[10.5px] font-semibold text-slate-500">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
                       <span>Rentang aktif: <strong className="text-slate-700 font-extrabold">{filterSummary.rangeText}</strong></span>
                       <span className="text-slate-300">|</span>
-                      <span>Menampilkan <strong className="text-indigo-600 font-extrabold">{filterSummary.dayCount} hari</strong> data ({Math.round(filterSummary.dayCount / salesData.length * 100)}%)</span>
+                      <span>Menampilkan <strong className="text-indigo-600 font-extrabold">{filterSummary.dayCount} hari</strong> data</span>
+                      {selectedAdmin && (
+                        <>
+                          <span className="text-slate-300">|</span>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 font-black border border-indigo-200">
+                            <UserCheck className="w-3 h-3 text-indigo-600" />
+                            Admin: {selectedAdmin}
+                            <button
+                              onClick={() => setSelectedAdmin('')}
+                              className="ml-1 text-indigo-500 hover:text-indigo-800 font-black cursor-pointer"
+                              title="Hapus filter admin"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-4 text-slate-500 sm:justify-end font-bold">
                       <span>Total Omzet: <strong className="text-indigo-600 font-black">{formatRupiah(filterSummary.totalOmzet)}</strong></span>
@@ -1385,7 +1585,7 @@ export default function App() {
                 className="space-y-6"
               >
                 <SalesCalendar 
-                  salesData={salesData} 
+                  salesData={baseSalesData} 
                   events={events} 
                   onSelectDate={(dateStr) => setSelectedDateStr(dateStr)} 
                 />
@@ -1403,6 +1603,7 @@ export default function App() {
               >
                 <SalesTable 
                   salesData={filteredSalesData} 
+                  rawOrders={filteredRawOrders} 
                   globalStartDate={filterStartDate}
                   globalEndDate={filterEndDate}
                   onStartDateChange={setFilterStartDate}
@@ -1420,7 +1621,11 @@ export default function App() {
                 transition={{ duration: 0.35, ease: 'easeOut' }}
                 className="space-y-6"
               >
-                <SalesPredictions salesData={filteredSalesData} />
+                <SalesPredictions 
+                  salesData={filteredSalesData} 
+                  allOrders={rawOrders} 
+                  selectedAdmin={selectedAdmin} 
+                />
               </motion.div>
             )}
 
@@ -1445,7 +1650,7 @@ export default function App() {
       <SalesReportModal
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
-        salesData={salesData}
+        salesData={baseSalesData}
         events={events}
       />
 
@@ -1611,7 +1816,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsPdfDownloadModalOpen(false)}
-                className="px-4 py-2.5 border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-700 transition-colors bg-white shadow-sm"
+                className="px-4 py-2.5 border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-700 transition-colors bg-white shadow-sm cursor-pointer"
               >
                 Batal
               </button>
@@ -1622,15 +1827,22 @@ export default function App() {
                   handleDownloadDashboardSummary(pdfStartDate, pdfEndDate);
                 }}
                 disabled={!!(pdfStartDate && pdfEndDate && pdfStartDate > pdfEndDate)}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 hover:scale-[1.01]"
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-indigo-100 disabled:opacity-45 hover:scale-[1.01] cursor-pointer"
               >
-                <Download className="w-4 h-4 text-white" />
-                Unduh PDF
+                <Eye className="w-4 h-4 text-white" />
+                Pratinjau &amp; Unduh PDF
               </button>
             </div>
           </motion.div>
         </div>
       )}
+
+      {/* PDF Document Preview Modal */}
+      <PdfPreviewModal
+        isOpen={isPdfPreviewOpen}
+        data={pdfPreviewData}
+        onClose={() => setIsPdfPreviewOpen(false)}
+      />
 
       {/* PDF Download Loading Overlay */}
       {isDownloadingDashboard && (

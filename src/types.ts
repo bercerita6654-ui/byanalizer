@@ -11,6 +11,26 @@ export interface DailySales {
   dayOfWeek: string; // Senin, Selasa, etc.
 }
 
+export interface SalesOrder {
+  id: string; // Kolom 1: No Nota / ID (e.g. ONL.2610.03117)
+  noNota: string; // Kolom 1: No. Nota
+  tglInput: string; // Kolom 2: Tgl Input (e.g. 2026-10-30 11:29:21)
+  date: string; // Kolom 3: Tanggal (YYYY-MM-DD)
+  noSo: string; // Kolom 4: No. SO (e.g. SO2639272)
+  noPemesanan: string; // Kolom 5: No Pemesanan (e.g. 586864942941505492)
+  tokoOnline: string; // Kolom 6: Nama Toko Online
+  customer: string; // Kolom 6 alias for tokoOnline
+  kepada: string; // Kolom 7: Kepada
+  total: number; // Kolom 8: Total Nominal
+  type: string; // Kolom 9: Type
+  admin: string; // Kolom 10: Admin yang proses nota
+  createdBy: string; // Kolom 10 alias
+  sales: string; // Kolom 11: Sales
+  status: string; // Kolom 13: Status (DIAMBIL, BLM DIKIRIM, etc.)
+  isVoid: boolean; // Kolom 16: Void
+  orderCategory: 'instan' | 'reguler' | 'manual';
+}
+
 export interface MarketingEvent {
   id: string;
   date: string; // YYYY-MM-DD

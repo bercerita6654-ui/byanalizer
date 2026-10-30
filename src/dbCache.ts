@@ -1,9 +1,10 @@
-import { DailySales, ProductPerformance } from './types';
+import { DailySales, ProductPerformance, SalesOrder } from './types';
 
 const DB_NAME = 'SalesDashboardCacheDB';
-const DB_VERSION = 3;
-const SALES_STORE = 'sales_cache_v3';
-const PRODUCTS_STORE = 'products_cache_v3';
+const DB_VERSION = 4;
+const SALES_STORE = 'sales_cache_v4';
+const ORDERS_STORE = 'orders_cache_v4';
+const PRODUCTS_STORE = 'products_cache_v4';
 
 export interface CacheEntry<T> {
   url: string;
@@ -27,6 +28,9 @@ export function openDB(): Promise<IDBDatabase> {
       const db = request.result;
       if (!db.objectStoreNames.contains(SALES_STORE)) {
         db.createObjectStore(SALES_STORE, { keyPath: 'url' });
+      }
+      if (!db.objectStoreNames.contains(ORDERS_STORE)) {
+        db.createObjectStore(ORDERS_STORE, { keyPath: 'url' });
       }
       if (!db.objectStoreNames.contains(PRODUCTS_STORE)) {
         db.createObjectStore(PRODUCTS_STORE, { keyPath: 'url' });
@@ -81,6 +85,55 @@ export async function setSalesCache(url: string, data: DailySales[]): Promise<vo
     });
   } catch (err) {
     console.warn('Gagal menulis cache IndexedDB:', err);
+  }
+}
+
+export async function getOrdersCache(url: string): Promise<SalesOrder[] | null> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(ORDERS_STORE, 'readonly');
+      const store = transaction.objectStore(ORDERS_STORE);
+      const request = store.get(url);
+
+      request.onsuccess = () => {
+        const result = request.result as CacheEntry<SalesOrder[]> | undefined;
+        resolve(result ? result.data : null);
+      };
+
+      request.onerror = () => {
+        reject(request.error || new Error('Gagal mengambil cache orders'));
+      };
+    });
+  } catch (err) {
+    console.warn('Gagal membaca cache orders IndexedDB:', err);
+    return null;
+  }
+}
+
+export async function setOrdersCache(url: string, data: SalesOrder[]): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(ORDERS_STORE, 'readwrite');
+      const store = transaction.objectStore(ORDERS_STORE);
+      const entry: CacheEntry<SalesOrder[]> = {
+        url,
+        data,
+        timestamp: Date.now()
+      };
+      const request = store.put(entry);
+
+      request.onsuccess = () => {
+        resolve();
+      };
+
+      request.onerror = () => {
+        reject(request.error || new Error('Gagal menyimpan cache orders'));
+      };
+    });
+  } catch (err) {
+    console.warn('Gagal menulis cache orders IndexedDB:', err);
   }
 }
 

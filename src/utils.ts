@@ -209,16 +209,99 @@ export function formatRupiahCompact(value: number): string {
   return `Rp ${formatNumberIndo(value)}`;
 }
 
-export function formatDateIndo(dateStr: string): string {
+export const INDO_DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+export const INDO_MONTHS = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
+export const INDO_MONTHS_SHORT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+  'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'
+];
+
+/**
+ * Timezone-safe date parser.
+ * ISO date strings "YYYY-MM-DD" are instantiated at local noon (12:00:00)
+ * to avoid UTC midnight timezone rollback (which in UTC-X timezones turns
+ * "2026-10-30" into Thursday, 29 October 2026).
+ */
+export function parseDateSafe(dateStr: string): Date {
+  if (!dateStr) return new Date();
+  const clean = dateStr.trim();
+  const match = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (match) {
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    return new Date(year, month, day, 12, 0, 0);
+  }
+  const slashMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (slashMatch) {
+    const day = parseInt(slashMatch[1], 10);
+    const month = parseInt(slashMatch[2], 10) - 1;
+    const year = parseInt(slashMatch[3], 10);
+    return new Date(year, month, day, 12, 0, 0);
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? new Date() : d;
+}
+
+/**
+ * Returns Indonesian Day name (Senin, Selasa, Rabu, Kamis, Jumat, Sabtu, Minggu)
+ * strictly evaluated without timezone drift. E.g. "2026-10-30" -> "Jumat".
+ */
+export function getDayOfWeekIndo(dateStr: string): string {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return dateStr;
-  return new Intl.DateTimeFormat('id-ID', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  }).format(date);
+  const d = parseDateSafe(dateStr);
+  return INDO_DAYS[d.getDay()] || '';
+}
+
+/**
+ * Formats date into standard Indonesian format strictly based on Kolom 3.
+ * E.g. "2026-10-30" -> "Jumat, 30 Oktober 2026" (or "30 Oktober 2026" if withDay is false).
+ */
+export function formatDateIndo(dateStr: string, withDay: boolean = true): string {
+  if (!dateStr) return '';
+  const clean = dateStr.trim();
+  const match = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (match) {
+    const year = match[1];
+    const monthNum = parseInt(match[2], 10);
+    const day = parseInt(match[3], 10);
+    const monthName = INDO_MONTHS[monthNum - 1] || match[2];
+    if (withDay) {
+      const dayName = getDayOfWeekIndo(clean);
+      return `${dayName}, ${day} ${monthName} ${year}`;
+    }
+    return `${day} ${monthName} ${year}`;
+  }
+  const d = parseDateSafe(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const dayName = INDO_DAYS[d.getDay()];
+  const day = d.getDate();
+  const monthName = INDO_MONTHS[d.getMonth()];
+  const year = d.getFullYear();
+  if (withDay) {
+    return `${dayName}, ${day} ${monthName} ${year}`;
+  }
+  return `${day} ${monthName} ${year}`;
+}
+
+/**
+ * Formats Year-Month or Date into Indonesian Month & Year.
+ * E.g. "2026-10" or "2026-10-30" -> "Oktober 2026".
+ */
+export function formatMonthIndo(dateOrYearMonth: string): string {
+  if (!dateOrYearMonth) return '';
+  const clean = dateOrYearMonth.trim();
+  const match = clean.match(/^(\d{4})-(\d{1,2})/);
+  if (match) {
+    const year = match[1];
+    const monthNum = parseInt(match[2], 10);
+    const monthName = INDO_MONTHS[monthNum - 1] || match[2];
+    return `${monthName} ${year}`;
+  }
+  return dateOrYearMonth;
 }
 
 // Parse Google Sheet Sales CSV
@@ -321,8 +404,7 @@ export function parseDailySalesCSV(text: string): DailySales[] {
     const result = Object.values(dateMap).map(d => {
       d.txAll = d.txInstan + d.txReguler + d.txManual;
       d.totalAll = Math.round(d.totalInstan + d.totalReguler + d.totalManual);
-      const dateObj = new Date(d.date);
-      d.dayOfWeek = daysIndo[dateObj.getDay()] || '';
+      d.dayOfWeek = getDayOfWeekIndo(d.date);
       return d;
     }).sort((a, b) => a.date.localeCompare(b.date));
 
@@ -363,9 +445,7 @@ export function parseDailySalesCSV(text: string): DailySales[] {
     const txAll = txAllIdx !== -1 ? parseNumber(row[txAllIdx]) : (txInstan + txReguler + txManual);
     const totalAll = totAllIdx !== -1 ? parseNumber(row[totAllIdx]) : (totalInstan + totalReguler + totalManual);
 
-    const dateObj = new Date(parsedDate);
-    const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-    const dayOfWeek = daysIndo[dateObj.getDay()];
+    const dayOfWeek = getDayOfWeekIndo(parsedDate);
 
     result.push({
       date: parsedDate,
@@ -508,6 +588,56 @@ export function parseSalesOrders(text: string, maxRows: number = 100000): SalesO
   }
 
   return orders;
+}
+
+/**
+ * Aggregates daily sales from raw SalesOrder[] transactions,
+ * computing tx counts and totals for Instan, Reguler, Manual, and All,
+ * with timezone-safe Indonesian day of week.
+ */
+export function aggregateDailySalesFromOrders(orders: SalesOrder[]): DailySales[] {
+  const dateMap: Record<string, DailySales> = {};
+  
+  orders.forEach(ord => {
+    if (ord.isVoid) return;
+    const parsedDate = ord.date;
+    if (!parsedDate) return;
+    
+    if (!dateMap[parsedDate]) {
+      dateMap[parsedDate] = {
+        date: parsedDate,
+        txInstan: 0,
+        totalInstan: 0,
+        txReguler: 0,
+        totalReguler: 0,
+        txManual: 0,
+        totalManual: 0,
+        txAll: 0,
+        totalAll: 0,
+        dayOfWeek: getDayOfWeekIndo(parsedDate)
+      };
+    }
+    
+    const d = dateMap[parsedDate];
+    const total = ord.total || 0;
+    if (ord.orderCategory === 'manual') {
+      d.txManual += 1;
+      d.totalManual += total;
+    } else if (ord.orderCategory === 'instan') {
+      d.txInstan += 1;
+      d.totalInstan += total;
+    } else {
+      d.txReguler += 1;
+      d.totalReguler += total;
+    }
+  });
+
+  return Object.values(dateMap).map(d => {
+    d.txAll = d.txInstan + d.txReguler + d.txManual;
+    d.totalAll = Math.round(d.totalInstan + d.totalReguler + d.totalManual);
+    d.dayOfWeek = getDayOfWeekIndo(d.date);
+    return d;
+  }).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // Calendar Grid generator

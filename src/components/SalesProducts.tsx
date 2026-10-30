@@ -24,14 +24,17 @@ const STOCK_LIST_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8A
 
 // Helper functions for Indonesian date/month formatting and Mon-Sun week calculations
 function getMondayOfWeek(dateStr: string): string {
-  const date = new Date(dateStr);
+  const parts = dateStr.split('-');
+  if (parts.length < 3) return dateStr;
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  const date = new Date(y, m, d, 12, 0, 0);
   const day = date.getDay();
   const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
-  const monday = new Date(date.setDate(diff));
-  const y = monday.getFullYear();
-  const m = String(monday.getMonth() + 1).padStart(2, '0');
-  const d = String(monday.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const monday = new Date(y, m, diff, 12, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
 }
 
 function formatMonthIndo(monthStr: string): string {
@@ -45,7 +48,12 @@ function formatMonthIndo(monthStr: string): string {
 }
 
 function formatWeekIndo(weekMondayStr: string): string {
-  const date = new Date(weekMondayStr);
+  const parts = weekMondayStr.split('-');
+  if (parts.length < 3) return weekMondayStr;
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  const date = new Date(y, m, d, 12, 0, 0);
   const day = date.getDate();
   const monthsIndo = [
     'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
@@ -57,16 +65,19 @@ function formatWeekIndo(weekMondayStr: string): string {
 }
 
 function formatDateIndo(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return dateStr;
-  const day = date.getDate();
-  const monthsIndo = [
-    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
-  ];
-  const month = monthsIndo[date.getMonth()];
-  const year = date.getFullYear();
-  return `${day} ${month} ${year}`;
+  if (!dateStr) return '';
+  const match = dateStr.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (match) {
+    const year = match[1];
+    const monthNum = parseInt(match[2], 10);
+    const day = parseInt(match[3], 10);
+    const monthsIndo = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    return `${day} ${monthsIndo[monthNum - 1] || match[2]} ${year}`;
+  }
+  return dateStr;
 }
 
 const TrendMiniBarChart = ({ data, dates }: { data: number[], dates: string[] }) => {

@@ -436,7 +436,7 @@ export default function SalesHeatmap({ salesData }: SalesHeatmapProps) {
                             ? 'bg-slate-50 border-slate-100 text-slate-200' 
                             : 'hover:scale-110 cursor-pointer shadow-sm hover:z-10'
                         }`}
-                        title={hasData && cell.original ? `${formatDateIndo(cell.original.date)} (${cell.original.dayOfWeek})\nOmzet: ${formatRupiah(cell.original.totalAll)}\nOrder: ${cell.original.txAll} Tx` : `Tanggal ${d}, ${getMonthYearLabel(m)} (No data)`}
+                        title={hasData && cell.original ? `${formatDateIndo(cell.original.date, false)} (${cell.original.dayOfWeek})\nOmzet: ${formatRupiah(cell.original.totalAll)}\nOrder: ${cell.original.txAll} Tx` : `Tanggal ${d}, ${getMonthYearLabel(m)} (No data)`}
                       >
                         {hasData ? d : ''}
                       </div>
@@ -515,7 +515,7 @@ export default function SalesHeatmap({ salesData }: SalesHeatmapProps) {
                           ? 'hover:scale-[1.02] cursor-pointer shadow-sm hover:shadow'
                           : 'bg-slate-100/60 text-slate-300'
                     }`}
-                    title={hasData && cell.salesData ? `${formatDateIndo(cell.salesData.date)} (${cell.salesData.dayOfWeek})\nOmzet: ${formatRupiah(cell.salesData.totalAll)}\nOrder: ${cell.salesData.txAll} Tx` : cell.dayNum ? `Tanggal ${cell.dayNum} (No Data)` : ''}
+                    title={hasData && cell.salesData ? `${formatDateIndo(cell.salesData.date, false)} (${cell.salesData.dayOfWeek})\nOmzet: ${formatRupiah(cell.salesData.totalAll)}\nOrder: ${cell.salesData.txAll} Tx` : cell.dayNum ? `Tanggal ${cell.dayNum} (No Data)` : ''}
                   >
                     {cell.dayNum ? (
                       <>

@@ -847,7 +847,7 @@ export default function SalesReportModal({
   const dateOptions = useMemo(() => {
     return availableDates.map(date => {
       const salesObj = salesData.find(d => d.date === date);
-      const label = `${salesObj ? salesObj.dayOfWeek : ''}, ${formatDateIndo(date)}`;
+      const label = formatDateIndo(date);
       const amount = salesObj ? formatRupiah(salesObj.totalAll) : '';
       return { date, label, amount };
     });
@@ -2516,7 +2516,7 @@ export default function SalesReportModal({
         const ev = events.find(e => e.date === day.date);
         const dayAov = day.txAll > 0 ? Math.round(day.totalAll / day.txAll) : 0;
         return [
-          `${day.dayOfWeek}, ${formatDateIndo(day.date).replace(/ \d{4}$/, '')}`,
+          `${day.dayOfWeek}, ${formatDateIndo(day.date, false).replace(/ \d{4}$/, '')}`,
           formatRupiah(day.totalInstan),
           formatRupiah(day.totalReguler),
           formatRupiah(day.totalManual),
@@ -2596,7 +2596,7 @@ export default function SalesReportModal({
         
         const momSalesPct = formatGrowthPct(currSummary.totalSales, m1Summary.totalSales);
         const mom2SalesPct = formatGrowthPct(currSummary.totalSales, m2Summary.totalSales);
-        const peakDayText = currSummary.peakDay ? `${currSummary.peakDay.dayOfWeek} (${formatDateIndo(currSummary.peakDay.date).replace(/ \d{4}$/, '')}) - ${formatRupiah(currSummary.peakDay.totalAll)}` : '-';
+        const peakDayText = currSummary.peakDay ? `${currSummary.peakDay.dayOfWeek} (${formatDateIndo(currSummary.peakDay.date, false).replace(/ \d{4}$/, '')}) - ${formatRupiah(currSummary.peakDay.totalAll)}` : '-';
         
         const targetBullet = `• Kebutuhan Target: Level 1 (${currSummary.totalSales >= targetL1 ? 'Tercapai' : `Butuh ${formatRupiah(targetL1 - currSummary.totalSales)} lagi`}), Level 2 (${currSummary.totalSales >= targetL2 ? 'Tercapai' : `Butuh ${formatRupiah(targetL2 - currSummary.totalSales)} lagi`}), Level 3 (${currSummary.totalSales >= targetL3 ? 'Tercapai' : `Butuh ${formatRupiah(targetL3 - currSummary.totalSales)} lagi`}).`;
 

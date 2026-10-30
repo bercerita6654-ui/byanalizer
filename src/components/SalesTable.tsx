@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { DailySales, SalesOrder } from '../types';
-import { formatRupiah, formatNumberIndo, formatDateIndo } from '../utils';
+import { formatRupiah, formatNumberIndo, formatDateIndo, getDayOfWeekIndo } from '../utils';
 import { 
   Search, ArrowUpDown, ChevronDown, Download, Filter, 
   Calendar, RotateCcw, AlertCircle, FileDown, Eye, Zap, Package, ShoppingBag, FileText, CheckCircle2
@@ -682,8 +682,13 @@ export default function SalesTable({
                           className="hover:bg-slate-50/50 transition-colors"
                         >
                           <td className="px-6 py-4.5 font-bold text-slate-800">
-                            <span className="text-[10px] bg-slate-100 text-slate-500 font-extrabold px-2 py-0.5 rounded mr-2 uppercase">{row.dayOfWeek}</span>
-                            {row.date}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-100 font-extrabold px-2 py-0.5 rounded uppercase">
+                                {row.dayOfWeek || getDayOfWeekIndo(row.date)}
+                              </span>
+                              <span className="text-slate-800">{formatDateIndo(row.date, false)}</span>
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-400 mt-0.5">{row.date}</div>
                           </td>
                           <td className="px-6 py-4.5 text-right font-black text-indigo-600 font-mono">
                             {formatRupiah(row.totalAll)}
@@ -955,10 +960,18 @@ export default function SalesTable({
                           {ord.noNota || ord.id}
                         </td>
                         <td className="px-4 py-3.5 whitespace-nowrap">
-                          <div className="font-bold text-slate-800">{ord.date}</div>
-                          {ord.tglInput && (
-                            <div className="text-[10px] text-slate-400 font-medium">{ord.tglInput.split(' ')[1] || ord.tglInput}</div>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-100 font-extrabold px-1.5 py-0.5 rounded uppercase">
+                              {getDayOfWeekIndo(ord.date)}
+                            </span>
+                            <span className="font-bold text-slate-800">{formatDateIndo(ord.date, false)}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] font-mono text-slate-400">{ord.date}</span>
+                            {ord.tglInput && (
+                              <span className="text-[10px] text-slate-400 font-medium">({ord.tglInput.split(' ')[1] || ord.tglInput})</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3.5 whitespace-nowrap font-mono">
                           <div className="font-bold text-indigo-700">{ord.noPemesanan || '-'}</div>

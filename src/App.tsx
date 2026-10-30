@@ -4,9 +4,11 @@ import { DailySales, MarketingEvent, ViewTab, SalesOrder } from './types';
 import { 
   parseDailySalesCSV, 
   parseSalesOrders,
+  aggregateDailySalesFromOrders,
   normalizeGoogleSheetUrl,
   generateSampleMarketingEvents, 
   formatDateIndo, 
+  getDayOfWeekIndo,
   formatRupiah, 
   formatNumberIndo 
 } from './utils';
@@ -406,7 +408,8 @@ export default function App() {
           detail: 'Mengecek data tersimpan di IndexedDB...'
         }));
         const cachedData = await getSalesCache(urlToFetch);
-        if (cachedData && cachedData.length > 0) {
+        // Only use cache if it contains substantial historical data (> 50 days)
+        if (cachedData && cachedData.length > 50) {
           const cachedOrders = await getOrdersCache(urlToFetch);
           if (cachedOrders && cachedOrders.length > 0) {
             setRawOrders(cachedOrders);
@@ -418,7 +421,7 @@ export default function App() {
             stage: 'completed',
             percent: 100,
             title: 'Data Dimuat dari Cache Lokal',
-            detail: `${cachedData.length} baris data berhasil dimuat instan.`,
+            detail: `${cachedData.length} hari data penjualan berhasil dimuat instan.`,
             estimatedSecondsRemaining: 0,
             elapsedSeconds: elapsed,
             itemCount: cachedData.length
@@ -439,53 +442,67 @@ export default function App() {
         stage: 'downloading',
         percent: Math.max(prev.percent, 42),
         title: 'Mengunduh Data Google Sheets...',
-        detail: 'Menerima stream data spreadsheet...',
+        detail: 'Mengunduh master data penjualan & transaksi terbaru...',
         estimatedSecondsRemaining: 1.6
       }));
 
-      const response = await fetch(urlToFetch);
-      if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+      let parsed: DailySales[] = [];
+      let orders: SalesOrder[] = [];
 
-      let text = '';
-      const reader = response.body?.getReader();
-      if (reader) {
-        const decoder = new TextDecoder('utf-8');
-        let receivedBytes = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          receivedBytes += value.length;
-          text += decoder.decode(value, { stream: true });
-          setSyncProgress(prev => ({
-            ...prev,
-            stage: 'downloading',
-            percent: Math.min(82, Math.max(prev.percent, 45 + Math.round((receivedBytes / 50000) * 35))),
-            detail: `Menerima stream: ${Math.round(receivedBytes / 1024)} KB diunduh...`,
-            totalBytes: receivedBytes,
-            estimatedSecondsRemaining: 1.0
-          }));
+      // Check if this is the target sales spreadsheet 1HSUiF20wpTJbfYdpOE08gtbRzm1N8IXOrZDs-KGSvnI
+      if (urlToFetch.includes('1HSUiF20wpTJbfYdpOE08gtbRzm1N8IXOrZDs-KGSvnI')) {
+        const fullArchiveUrl = 'https://docs.google.com/spreadsheets/d/1HSUiF20wpTJbfYdpOE08gtbRzm1N8IXOrZDs-KGSvnI/export?format=csv&gid=968710927';
+        const liveSheetUrl = 'https://docs.google.com/spreadsheets/d/1HSUiF20wpTJbfYdpOE08gtbRzm1N8IXOrZDs-KGSvnI/export?format=csv&gid=287037765';
+
+        const [resFull, resLive] = await Promise.all([
+          fetch(fullArchiveUrl).catch(() => null),
+          fetch(liveSheetUrl).catch(() => null)
+        ]);
+
+        const textFull = resFull && resFull.ok ? await resFull.text() : '';
+        const textLive = resLive && resLive.ok ? await resLive.text() : '';
+
+        const ordersFull = textFull ? parseSalesOrders(textFull) : [];
+        const ordersLive = textLive ? parseSalesOrders(textLive) : [];
+
+        // Merge orders: live sheet augments/overwrites archive entries
+        const orderMap = new Map<string, SalesOrder>();
+        ordersFull.forEach(o => {
+          const key = (o.noNota || o.id).trim();
+          if (key) orderMap.set(key, o);
+        });
+        ordersLive.forEach(o => {
+          const key = (o.noNota || o.id).trim();
+          if (key) orderMap.set(key, o);
+        });
+
+        orders = Array.from(orderMap.values());
+        if (orders.length === 0) {
+          throw new Error('Gagal memproses data atau format baris tidak dikenali. Pastikan kolom sesuai.');
         }
+
+        parsed = aggregateDailySalesFromOrders(orders);
       } else {
-        text = await response.text();
+        const response = await fetch(urlToFetch);
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+        const text = await response.text();
+        parsed = parseDailySalesCSV(text);
+        if (parsed.length === 0) {
+          throw new Error('Gagal memproses data atau format baris tidak dikenali. Pastikan kolom sesuai.');
+        }
+        orders = parseSalesOrders(text);
       }
 
       setSyncProgress(prev => ({
         ...prev,
         stage: 'parsing',
-        percent: 86,
-        title: 'Memproses & Memvalidasi CSV...',
-        detail: 'Menyusun tanggal, order & transaksi harian...',
-        estimatedSecondsRemaining: 0.6
+        percent: 88,
+        title: 'Memproses & Memvalidasi Transaksi...',
+        detail: `Menyusun ${orders.length} pesanan & ${parsed.length} hari transaksi...`,
+        estimatedSecondsRemaining: 0.5
       }));
 
       await new Promise(r => setTimeout(r, 60));
-
-      const parsed = parseDailySalesCSV(text);
-      if (parsed.length === 0) {
-        throw new Error('Gagal memproses data atau format baris tidak dikenali. Pastikan kolom sesuai.');
-      }
-
-      const orders = parseSalesOrders(text);
       setRawOrders(orders);
 
       setSyncProgress(prev => ({
@@ -493,7 +510,7 @@ export default function App() {
         stage: 'indexing',
         percent: 94,
         title: 'Menyimpan ke Cache Lokal...',
-        detail: `Menyimpan ${parsed.length} baris data ke IndexedDB...`,
+        detail: `Menyimpan ${parsed.length} hari (${orders.length} order) ke IndexedDB...`,
         itemCount: parsed.length,
         estimatedSecondsRemaining: 0.2
       }));
@@ -600,7 +617,6 @@ export default function App() {
       return salesData;
     }
     
-    const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
     const dateMap: Record<string, DailySales> = {};
     
     rawOrders.forEach(ord => {
@@ -643,8 +659,7 @@ export default function App() {
     return Object.values(dateMap).map(d => {
       d.txAll = d.txInstan + d.txReguler + d.txManual;
       d.totalAll = Math.round(d.totalInstan + d.totalReguler + d.totalManual);
-      const dateObj = new Date(d.date);
-      d.dayOfWeek = daysIndo[dateObj.getDay()] || '';
+      d.dayOfWeek = getDayOfWeekIndo(d.date);
       return d;
     }).sort((a, b) => a.date.localeCompare(b.date));
   }, [salesData, rawOrders, selectedAdmin]);

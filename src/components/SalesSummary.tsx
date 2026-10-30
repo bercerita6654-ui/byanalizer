@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DailySales, SalesOrder } from '../types';
-import { formatRupiah, formatNumberIndo, formatRupiahCompact, formatDateIndo } from '../utils';
+import { formatRupiah, formatNumberIndo, formatRupiahCompact, formatDateIndo, formatMonthIndo } from '../utils';
 import { 
   TrendingUp, ShoppingCart, Award, Sparkles, DollarSign,
   ArrowUpRight, BarChart3, HelpCircle, Activity, ShoppingBag,
@@ -155,11 +155,7 @@ export default function SalesSummary({
         const yearMonth = dateStr.substring(0, 7); // "YYYY-MM"
         
         if (!monthsMap.has(yearMonth)) {
-          const dateObj = new Date(`${yearMonth}-02`);
-          let label = yearMonth;
-          if (!isNaN(dateObj.getTime())) {
-            label = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(dateObj);
-          }
+          const label = formatMonthIndo(yearMonth);
           monthsMap.set(yearMonth, { yearMonth, label, totalSales: 0, totalTx: 0 });
         }
         
@@ -176,11 +172,7 @@ export default function SalesSummary({
     salesData.forEach(day => {
       const yearMonth = day.date.substring(0, 7);
       if (!monthsMap.has(yearMonth)) {
-        const dateObj = new Date(`${yearMonth}-02`);
-        let label = yearMonth;
-        if (!isNaN(dateObj.getTime())) {
-          label = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(dateObj);
-        }
+        const label = formatMonthIndo(yearMonth);
         monthsMap.set(yearMonth, { yearMonth, label, totalSales: 0, totalTx: 0 });
       }
       const m = monthsMap.get(yearMonth)!;

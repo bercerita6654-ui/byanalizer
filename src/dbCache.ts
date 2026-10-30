@@ -1,10 +1,10 @@
 import { DailySales, ProductPerformance, SalesOrder } from './types';
 
 const DB_NAME = 'SalesDashboardCacheDB';
-const DB_VERSION = 4;
-const SALES_STORE = 'sales_cache_v4';
-const ORDERS_STORE = 'orders_cache_v4';
-const PRODUCTS_STORE = 'products_cache_v4';
+const DB_VERSION = 5;
+const SALES_STORE = 'sales_cache_v5';
+const ORDERS_STORE = 'orders_cache_v5';
+const PRODUCTS_STORE = 'products_cache_v5';
 
 export interface CacheEntry<T> {
   url: string;

@@ -4,7 +4,7 @@ import { DailySales, SalesOrder } from '../types';
 import { formatRupiah, formatNumberIndo, formatDateIndo, getDayOfWeekIndo } from '../utils';
 import { 
   Search, ArrowUpDown, ChevronDown, Download, Filter, 
-  Calendar, RotateCcw, AlertCircle, FileDown, Eye, Zap, Package, ShoppingBag, FileText, CheckCircle2
+  Calendar, RotateCcw, AlertCircle, FileDown, Eye, Zap, Package, ShoppingBag, FileText, CheckCircle2, Clock
 } from 'lucide-react';
 import { PdfPreviewModal, PdfPreviewData } from './PdfPreviewModal';
 import { jsPDF } from 'jspdf';
@@ -235,7 +235,10 @@ export default function SalesTable({
           ord.kepada.toLowerCase().includes(q) ||
           adminName.toLowerCase().includes(q) ||
           ord.status.toLowerCase().includes(q) ||
-          ord.date.includes(q)
+          ord.date.includes(q) ||
+          (ord.jam && ord.jam.toLowerCase().includes(q)) ||
+          (ord.dayOfWeek && ord.dayOfWeek.toLowerCase().includes(q)) ||
+          (ord.tglInput && ord.tglInput.toLowerCase().includes(q))
         );
       }
       return true;
@@ -252,7 +255,10 @@ export default function SalesTable({
     if (filteredOrders.length === 0) return;
     const headers = [
       'No. Nota (Kolom 1)',
-      'Tgl Input',
+      'Hari (Kolom 2)',
+      'Tanggal (Kolom 2)',
+      'Jam (Kolom 2)',
+      'Tgl Input Lengkap (Kolom 2)',
       'Tanggal (Kolom 3)',
       'No. SO',
       'No. Pemesanan (Kolom 5)',
@@ -266,6 +272,9 @@ export default function SalesTable({
     ];
     const rows = filteredOrders.map(o => [
       `"${o.noNota}"`,
+      `"${o.dayOfWeek || getDayOfWeekIndo(o.date)}"`,
+      `"${o.date}"`,
+      `"${o.jam || (o.tglInput ? o.tglInput.split(' ')[1] : '') || ''}"`,
       `"${o.tglInput}"`,
       `"${o.date}"`,
       `"${o.noSo}"`,
@@ -943,7 +952,12 @@ export default function SalesTable({
                   <thead>
                     <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
                       <th className="px-4 py-3.5 whitespace-nowrap">No. Nota (Kol 1)</th>
-                      <th className="px-4 py-3.5 whitespace-nowrap">Tanggal (Kol 3)</th>
+                      <th className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Hari, Tanggal & Jam (Kolom 2)</span>
+                        </div>
+                      </th>
                       <th className="px-4 py-3.5 whitespace-nowrap">No. Pemesanan (Kol 5)</th>
                       <th className="px-4 py-3.5">Nama Toko Online (Kol 6)</th>
                       <th className="px-4 py-3.5">Kepada</th>
@@ -961,16 +975,28 @@ export default function SalesTable({
                         </td>
                         <td className="px-4 py-3.5 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-100 font-extrabold px-1.5 py-0.5 rounded uppercase">
-                              {getDayOfWeekIndo(ord.date)}
+                            <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200/80 font-black px-2 py-0.5 rounded-md uppercase tracking-wider">
+                              {ord.dayOfWeek || getDayOfWeekIndo(ord.date)}
                             </span>
-                            <span className="font-bold text-slate-800">{formatDateIndo(ord.date, false)}</span>
+                            <span className="font-bold text-slate-800 text-xs">
+                              {formatDateIndo(ord.date, false)}
+                            </span>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] font-mono text-slate-400">{ord.date}</span>
-                            {ord.tglInput && (
-                              <span className="text-[10px] text-slate-400 font-medium">({ord.tglInput.split(' ')[1] || ord.tglInput})</span>
-                            )}
+                          <div className="flex items-center gap-1.5 mt-1">
+                            {ord.jam ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2 py-0.5 rounded-md shadow-2xs">
+                                <Clock className="w-3 h-3 text-emerald-600 shrink-0" />
+                                {ord.jam}
+                              </span>
+                            ) : ord.tglInput && ord.tglInput.includes(' ') ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2 py-0.5 rounded-md shadow-2xs">
+                                <Clock className="w-3 h-3 text-emerald-600 shrink-0" />
+                                {ord.tglInput.split(' ')[1]}
+                              </span>
+                            ) : null}
+                            <span className="text-[10px] font-mono text-slate-400 block" title={`Kolom 2 (Tgl Input): ${ord.tglInput}`}>
+                              ({ord.tglInput || ord.date})
+                            </span>
                           </div>
                         </td>
                         <td className="px-4 py-3.5 whitespace-nowrap font-mono">

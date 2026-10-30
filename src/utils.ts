@@ -304,9 +304,61 @@ export function formatMonthIndo(dateOrYearMonth: string): string {
   return dateOrYearMonth;
 }
 
+/**
+ * Parse Kolom 2 (Tgl Input) to extract:
+ * - date: YYYY-MM-DD
+ * - jam: HH:mm:ss (or HH:mm)
+ * - dayOfWeek: Indonesian day of week (Senin..Minggu)
+ * Fallback to Kolom 3 (Tanggal) if Kolom 2 is empty.
+ */
+export function parseTglInput(tglInputStr: string, fallbackDateStr?: string): {
+  date: string;
+  jam: string;
+  dayOfWeek: string;
+} {
+  const cleanInput = (tglInputStr || '').trim();
+  let datePart = '';
+  let jamPart = '';
+
+  if (cleanInput) {
+    // Check for space between date and time e.g. "2026-10-30 15:58:18"
+    const spaceIdx = cleanInput.indexOf(' ');
+    if (spaceIdx !== -1) {
+      datePart = cleanInput.substring(0, spaceIdx).trim();
+      jamPart = cleanInput.substring(spaceIdx + 1).trim();
+    } else {
+      const tIdx = cleanInput.indexOf('T');
+      if (tIdx !== -1) {
+        datePart = cleanInput.substring(0, tIdx).trim();
+        jamPart = cleanInput.substring(tIdx + 1).trim();
+      } else {
+        datePart = cleanInput;
+      }
+    }
+  }
+
+  // Parse candidate date from Kolom 2
+  let finalDate = parseCSVDate(datePart);
+
+  // If Kolom 2 did not give a valid date, fallback to Kolom 3 (Tanggal)
+  if (!finalDate && fallbackDateStr) {
+    finalDate = parseCSVDate(fallbackDateStr);
+  }
+
+  const validDate = finalDate || datePart || fallbackDateStr || '';
+  const dayOfWeek = validDate ? getDayOfWeekIndo(validDate) : '';
+
+  return {
+    date: validDate,
+    jam: jamPart,
+    dayOfWeek
+  };
+}
+
 // Parse Google Sheet Sales CSV
 // Specifically optimized for sheet "LIST MENU PENJUALAN":
 // Kolom 1 (Index 0): No. Nota / ID
+// Kolom 2 (Index 1): Tgl Input (Hari, Tanggal, Jam)
 // Kolom 3 (Index 2): Tanggal
 // Kolom 5 (Index 4): No. Pemesanan
 // Kolom 6 (Index 5): Nama Toko Online (Customer)
@@ -340,19 +392,18 @@ export function parseDailySalesCSV(text: string): DailySales[] {
 
   if (isRawFormat) {
     // Dynamic index resolution with explicit column defaults (Kolom 1..N = Index 0..N-1)
-    const dateIdx = headers.findIndex(h => h === 'tanggal' || h === 'date' || h === 'tgl');
     const custIdx = headers.findIndex(h => h === 'customer' || h.includes('toko') || h.includes('pelanggan'));
     const statusIdx = headers.findIndex(h => h === 'status');
     const totalIdx = headers.findIndex(h => h === 'total' || h.includes('nominal'));
     const voidIdx = headers.findIndex(h => h === 'void');
 
-    const effectiveDateIdx = dateIdx !== -1 ? dateIdx : 2; // Kolom ke-3
+    const effectiveTglInputIdx = 1; // Kolom ke-2 (Tgl Input)
+    const effectiveDateIdx = 2; // Kolom ke-3 (Tanggal)
     const effectiveCustIdx = custIdx !== -1 ? custIdx : 5; // Kolom ke-6
     const effectiveTotalIdx = totalIdx !== -1 ? totalIdx : 7; // Kolom ke-8
     const effectiveStatusIdx = statusIdx !== -1 ? statusIdx : 12; // Kolom ke-13
     const effectiveVoidIdx = voidIdx !== -1 ? voidIdx : 15; // Kolom ke-16
 
-    const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
     const dateMap: Record<string, DailySales> = {};
 
     for (let i = headerIdx + 1; i < lines.length; i++) {
@@ -364,9 +415,10 @@ export function parseDailySalesCSV(text: string): DailySales[] {
         continue;
       }
 
-      const rawDate = row[effectiveDateIdx];
-      if (!rawDate) continue;
-      const parsedDate = parseCSVDate(rawDate);
+      // Kolom 2 (Tgl Input) as primary source for date & day
+      const rawTglInput = row[effectiveTglInputIdx] || '';
+      const rawDate = row[effectiveDateIdx] || '';
+      const { date: parsedDate } = parseTglInput(rawTglInput, rawDate);
       if (!parsedDate) continue;
 
       const total = parseNumber(row[effectiveTotalIdx]);
@@ -384,7 +436,7 @@ export function parseDailySalesCSV(text: string): DailySales[] {
           totalManual: 0,
           txAll: 0,
           totalAll: 0,
-          dayOfWeek: ''
+          dayOfWeek: getDayOfWeekIndo(parsedDate)
         };
       }
 
@@ -541,7 +593,10 @@ export function parseSalesOrders(text: string, maxRows: number = 100000): SalesO
     const noNota = (row[idxNoNota] || `ORD-${i}`).trim();
     const tglInput = (row[idxTglInput] || '').trim();
     const rawDate = (row[idxTanggal] || '').trim();
-    const parsedDate = parseCSVDate(rawDate) || rawDate;
+    
+    // Primary source for Hari, Tanggal, dan Jam is Kolom 2 (Tgl Input), fallback to Kolom 3 (Tanggal)
+    const { date: parsedDate, jam, dayOfWeek } = parseTglInput(tglInput, rawDate);
+
     const noSo = (row[idxNoSo] || '').trim();
     const noPemesanan = (row[idxNoPemesanan] || '').trim();
     const tokoOnline = (row[idxNamaToko] || '').trim();
@@ -571,6 +626,8 @@ export function parseSalesOrders(text: string, maxRows: number = 100000): SalesO
       noNota,
       tglInput,
       date: parsedDate,
+      jam,
+      dayOfWeek,
       noSo,
       noPemesanan,
       tokoOnline,

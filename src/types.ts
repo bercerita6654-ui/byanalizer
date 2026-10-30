@@ -15,7 +15,9 @@ export interface SalesOrder {
   id: string; // Kolom 1: No Nota / ID (e.g. ONL.2610.03117)
   noNota: string; // Kolom 1: No. Nota
   tglInput: string; // Kolom 2: Tgl Input (e.g. 2026-10-30 11:29:21)
-  date: string; // Kolom 3: Tanggal (YYYY-MM-DD)
+  date: string; // Kolom 2 (primary) / Kolom 3: Tanggal (YYYY-MM-DD)
+  jam: string; // Kolom 2: Jam / Waktu (e.g. 15:58:18)
+  dayOfWeek: string; // Kolom 2: Hari (e.g. Jumat)
   noSo: string; // Kolom 4: No. SO (e.g. SO2639272)
   noPemesanan: string; // Kolom 5: No Pemesanan (e.g. 586864942941505492)
   tokoOnline: string; // Kolom 6: Nama Toko Online

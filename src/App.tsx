@@ -348,6 +348,91 @@ export default function App() {
   // Toast notifications state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  // Auto-sync states
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('sales_auto_sync_enabled');
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [lastSyncTime, setLastSyncTime] = useState<string>(() => {
+    const d = new Date();
+    return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  });
+
+  useEffect(() => {
+    localStorage.setItem('sales_auto_sync_enabled', JSON.stringify(autoSyncEnabled));
+  }, [autoSyncEnabled]);
+
+  // Auto-sync interval polling effect (every 3 minutes = 180000ms)
+  useEffect(() => {
+    if (!autoSyncEnabled) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const urlToFetch = normalizeGoogleSheetUrl(csvUrl);
+        let parsed: DailySales[] = [];
+        let orders: SalesOrder[] = [];
+
+        if (urlToFetch.includes('1HSUiF20wpTJbfYdpOE08gtbRzm1N8IXOrZDs-KGSvnI')) {
+          const fullArchiveUrl = 'https://docs.google.com/spreadsheets/d/1HSUiF20wpTJbfYdpOE08gtbRzm1N8IXOrZDs-KGSvnI/export?format=csv&gid=968710927';
+          const liveSheetUrl = 'https://docs.google.com/spreadsheets/d/1HSUiF20wpTJbfYdpOE08gtbRzm1N8IXOrZDs-KGSvnI/export?format=csv&gid=287037765';
+
+          const [resFull, resLive] = await Promise.all([
+            fetch(fullArchiveUrl).catch(() => null),
+            fetch(liveSheetUrl).catch(() => null)
+          ]);
+
+          const textFull = resFull && resFull.ok ? await resFull.text() : '';
+          const textLive = resLive && resLive.ok ? await resLive.text() : '';
+
+          const ordersFull = textFull ? parseSalesOrders(textFull) : [];
+          const ordersLive = textLive ? parseSalesOrders(textLive) : [];
+
+          const orderMap = new Map<string, SalesOrder>();
+          ordersFull.forEach(o => {
+            const key = (o.noNota || o.id).trim();
+            if (key) orderMap.set(key, o);
+          });
+          ordersLive.forEach(o => {
+            const key = (o.noNota || o.id).trim();
+            if (key) orderMap.set(key, o);
+          });
+
+          orders = Array.from(orderMap.values());
+          if (orders.length > 0) {
+            parsed = aggregateDailySalesFromOrders(orders);
+          }
+        } else {
+          const response = await fetch(urlToFetch);
+          if (response.ok) {
+            const text = await response.text();
+            parsed = parseDailySalesCSV(text);
+            orders = parseSalesOrders(text);
+          }
+        }
+
+        if (parsed.length > 0) {
+          setRawOrders(orders);
+          setSalesData(parsed);
+          await setSalesCache(urlToFetch, parsed);
+          await setOrdersCache(urlToFetch, orders);
+          setIsUsingCache(false);
+          const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setLastSyncTime(timeStr);
+          showToast("Auto-sync: Data spreadsheet berhasil diperbarui otomatis!", "success");
+        }
+      } catch (e) {
+        console.warn("Auto-sync background check error:", e);
+      }
+    }, 180000);
+
+    return () => clearInterval(interval);
+  }, [autoSyncEnabled, csvUrl]);
+
   // Sync state changes with localStorage
   useEffect(() => {
     localStorage.setItem('sales_marketing_events', JSON.stringify(events));
@@ -1176,6 +1261,23 @@ export default function App() {
                 Reset Default
               </button>
             )}
+
+            {/* Auto-sync toggle */}
+            <button
+              onClick={() => {
+                setAutoSyncEnabled(!autoSyncEnabled);
+                showToast(autoSyncEnabled ? "Auto-sync dinonaktifkan" : "Auto-sync diaktifkan (tiap 3 menit)", "success");
+              }}
+              className={`text-[9px] font-black uppercase tracking-wider px-3 py-2.5 rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${
+                autoSyncEnabled 
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm' 
+                  : 'bg-slate-100 text-slate-500 border-slate-200'
+              }`}
+              title={autoSyncEnabled ? `Auto-sync aktif (Pembaruan terakhir: ${lastSyncTime}). Klik untuk menonaktifkan.` : 'Auto-sync nonaktif. Klik untuk mengaktifkan.'}
+            >
+              <span className={`w-2 h-2 rounded-full ${autoSyncEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+              <span>{autoSyncEnabled ? 'Auto-Sync ON' : 'Auto-Sync OFF'}</span>
+            </button>
 
             <button
               onClick={handleSync}

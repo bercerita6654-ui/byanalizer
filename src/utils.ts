@@ -177,15 +177,9 @@ export function parseNumber(valStr: string | number | undefined | null): number 
   return isNaN(parsed) ? 0 : parsed;
 }
 
-// Parse US style formatted numbers (e.g., "29,088" or "5,000" where commas are thousands separators)
-export function parseProductNumber(valStr: string): number {
-  if (!valStr) return 0;
-  const clean = valStr
-    .replace(/Rp/gi, '')
-    .replace(/\s+/g, '')
-    .replace(/,/g, ''); // Simply strip out the commas (thousands separators)
-  const parsed = parseFloat(clean);
-  return isNaN(parsed) ? 0 : parsed;
+// Parse product numbers using robust parseNumber (handles Indonesian 82.500, decimals, etc.)
+export function parseProductNumber(valStr: string | number | undefined | null): number {
+  return parseNumber(valStr);
 }
 
 // Format numbers to Indonesian standard thousand dots: e.g. 82500.00 -> "82.500"
@@ -885,29 +879,31 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
       if (fIdx > 0) fIdx--;
     }
 
-    const defaultSkuIdx = needShift ? 3 : 4;
-    const defaultCatIdx = needShift ? 6 : 7;
-    const defaultNameIdx = needShift ? 5 : 6;
-    const defaultUnitIdx = needShift ? 9 : 10;
-    const defaultQtyIdx = needShift ? 8 : 9;
-    const defaultPriceIdx = needShift ? 10 : 11;
-    const defaultDateIdx = needShift ? 0 : 1;
-    const defaultBrandIdx = needShift ? 7 : 8;
+    const defaultDateIdx = 0; // Kolom 1: Hari / Tanggal
+    const defaultNotaIdx = 1; // Kolom 2: No Nota
+    const defaultMarketplaceIdx = 2; // Kolom 3: Marketplace
+    const defaultSkuIdx = 3; // Kolom 4: SKU
+    const defaultNameIdx = 5; // Kolom 6: Nama Produk
+    const defaultCatIdx = 6; // Kolom 7: Kategori
+    const defaultBrandIdx = 7; // Kolom 8: Merk
+    const defaultQtyIdx = 8; // Kolom 9: Qty (Kolom I)
+    const defaultUnitIdx = 9; // Kolom 10: Unit (Kolom J)
+    const defaultPriceIdx = 10; // Kolom 11: Harga (Kolom K)
 
-    // Extract values with safe fallbacks
-    const sku = (row[sIdx] || row[defaultSkuIdx] || '').trim();
+    // Extract values strictly prioritizing fixed 1-indexed column positions
+    const sku = (row[defaultSkuIdx] || (skuIdx !== -1 ? row[skuIdx] : '') || '').trim();
     if (!sku || sku.toLowerCase() === 'code' || sku.toLowerCase() === 'sku' || sku.toLowerCase() === 'barcode') continue;
 
-    const category = (row[cIdx] || row[defaultCatIdx] || '').trim() || 'Uncategorized';
-    const name = (row[nIdx] || row[defaultNameIdx] || '').trim() || 'Produk Tanpa Nama';
-    const unit = (row[uIdx] || row[defaultUnitIdx] || 'PCS').trim();
-    const qty = parseProductNumber(row[qIdx] || row[defaultQtyIdx] || '1');
-    const price = parseProductNumber(row[pIdx] || row[defaultPriceIdx] || '0');
-    const rawDate = (row[dIdx] || row[defaultDateIdx] || '').trim();
-    const parsedDate = parseIndonesianDate(rawDate) || '2026-01-01';
-    const imageUrl = (fIdx !== -1 ? row[fIdx] : '') || '';
+    const category = (row[defaultCatIdx] || (categoryIdx !== -1 ? row[categoryIdx] : '') || '').trim() || 'Uncategorized';
+    const name = (row[defaultNameIdx] || (nameIdx !== -1 ? row[nameIdx] : '') || '').trim() || 'Produk Tanpa Nama';
+    const unit = (row[defaultUnitIdx] || (unitIdx !== -1 ? row[unitIdx] : '') || 'PCS').trim();
+    const qty = parseProductNumber(row[defaultQtyIdx] || (qtyIdx !== -1 ? row[qtyIdx] : '') || '1');
+    const price = parseProductNumber(row[defaultPriceIdx] || (priceIdx !== -1 ? row[priceIdx] : '') || '0');
+    const rawDate = (row[defaultDateIdx] || (dateIdx !== -1 ? row[dateIdx] : '') || '').trim();
+    const parsedDate = parseIndonesianDate(rawDate) || parseCSVDate(rawDate) || '2026-01-01';
+    const imageUrl = (fotoIdx !== -1 ? row[fotoIdx] : '') || '';
     
-    let brand = (row[bIdx] || row[defaultBrandIdx] || '').trim();
+    let brand = (row[defaultBrandIdx] || (brandIdx !== -1 ? row[brandIdx] : '') || '').trim();
     if (!brand || brand === '#N/A' || brand.toLowerCase() === 'n/a' || brand === '') {
       brand = 'No Brand';
     }
@@ -916,9 +912,9 @@ export function parseProductPerformanceCSV(text: string): ProductPerformance[] {
       sku,
       category,
       name,
-      totalQty: qty, // Use parsed Qty from Column 10
+      totalQty: qty,
       unit,
-      totalSales: price * qty, // Calculate correct line-item Sales as Price * Qty
+      totalSales: price * qty, // Unit price (Col K) * Qty (Col I)
       brand,
       date: parsedDate,
       imageUrl

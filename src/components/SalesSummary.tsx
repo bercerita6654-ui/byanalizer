@@ -619,34 +619,34 @@ export default function SalesSummary({
             {/* The fill */}
             <div 
               className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 rounded-full transition-all duration-1000 relative shadow-inner"
-              style={{ width: `${Math.min((selectedMonthInfo.totalSales / 650000000) * 100, 100)}%` }}
+              style={{ width: `${Math.min((selectedMonthInfo.totalSales / 850000000) * 100, 100)}%` }}
             />
 
             {/* Level 1 pin */}
             <div 
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center"
-              style={{ left: `${(450000000 / 650000000) * 100}%` }}
+              style={{ left: `${(600000000 / 850000000) * 100}%` }}
             >
-              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 450000000 ? 'bg-amber-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
-              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 1 (450M)</span>
+              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 600000000 ? 'bg-amber-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
+              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 1 (600M)</span>
             </div>
 
             {/* Level 2 pin */}
             <div 
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center"
-              style={{ left: `${(525000000 / 650000000) * 100}%` }}
+              style={{ left: `${(700000000 / 850000000) * 100}%` }}
             >
-              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 525000000 ? 'bg-purple-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
-              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 2 (525M)</span>
+              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 700000000 ? 'bg-purple-600 border-white' : 'bg-white border-slate-300'} shadow-sm z-10`} />
+              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 2 (700M)</span>
             </div>
 
             {/* Level 3 pin */}
             <div 
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center"
-              style={{ left: `${(600000000 / 650000000) * 100}%` }}
+              style={{ left: `${(800000000 / 850000000) * 100}%` }}
             >
-              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 600000000 ? 'bg-emerald-500 border-white animate-bounce' : 'bg-white border-slate-300'} shadow-sm z-10`} />
-              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 3 (600M)</span>
+              <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedMonthInfo.totalSales >= 800000000 ? 'bg-emerald-500 border-white animate-bounce' : 'bg-white border-slate-300'} shadow-sm z-10`} />
+              <span className="text-[10px] font-bold text-slate-500 mt-6 absolute whitespace-nowrap">Lvl 3 (800M)</span>
             </div>
           </div>
           {/* Spacer for label heights */}
@@ -658,132 +658,20 @@ export default function SalesSummary({
           
           {/* Level 1 Card */}
           <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
-            selectedMonthInfo.totalSales >= 450000000
+            selectedMonthInfo.totalSales >= 600000000
               ? 'bg-amber-50/50 border-amber-200/60 shadow-sm shadow-amber-100/30'
               : 'bg-slate-50/40 border-slate-100'
           }`}>
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2">
                 <div className={`p-2 rounded-xl shrink-0 ${
-                  selectedMonthInfo.totalSales >= 450000000 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
+                  selectedMonthInfo.totalSales >= 600000000 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
                 }`}>
                   <Trophy className="w-4 h-4" />
                 </div>
                 <div>
                   <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 1</h5>
                   <p className="text-[10px] sm:text-xs text-amber-800 font-bold mt-1">Sertifikasi Bronze</p>
-                </div>
-              </div>
-              {selectedMonthInfo.totalSales >= 450000000 ? (
-                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200/40 flex items-center gap-1 shrink-0">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Achieved
-                </span>
-              ) : (
-                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 flex items-center gap-1 shrink-0">
-                  <Lock className="w-3.5 h-3.5" /> Locked
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between items-baseline">
-                <span className="text-xs sm:text-sm font-bold text-slate-400">Target Omzet</span>
-                <span className="text-sm sm:text-base font-black text-slate-800 font-mono">Rp 450.000.000</span>
-              </div>
-              
-              <div className="flex justify-between items-center text-xs text-slate-500 font-bold mt-2">
-                <span>Progress</span>
-                <span className="font-mono">{Math.min((selectedMonthInfo.totalSales / 450000000) * 100, 100).toFixed(1)}%</span>
-              </div>
-              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 450000000 ? 'bg-amber-500' : 'bg-indigo-400'}`}
-                  style={{ width: `${Math.min((selectedMonthInfo.totalSales / 450000000) * 100, 100)}%` }}
-                />
-              </div>
-
-              <p className="text-xs font-semibold text-slate-500 mt-2">
-                {selectedMonthInfo.totalSales >= 450000000 ? (
-                  <span className="text-emerald-600 font-bold">🎉 Selamat! Target level 1 terlampaui.</span>
-                ) : (
-                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(450000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk mencapai level ini.</span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          {/* Level 2 Card */}
-          <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
-            selectedMonthInfo.totalSales >= 525000000
-              ? 'bg-purple-50/50 border-purple-200/60 shadow-sm shadow-purple-100/30'
-              : 'bg-slate-50/40 border-slate-100'
-          }`}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-2">
-                <div className={`p-2 rounded-xl shrink-0 ${
-                  selectedMonthInfo.totalSales >= 525000000 ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-400'
-                }`}>
-                  <Trophy className="w-4 h-4" />
-                </div>
-                <div>
-                  <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 2</h5>
-                  <p className="text-[10px] sm:text-xs text-purple-800 font-bold mt-1">Sertifikasi Silver</p>
-                </div>
-              </div>
-              {selectedMonthInfo.totalSales >= 525000000 ? (
-                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200/40 flex items-center gap-1 shrink-0">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Achieved
-                </span>
-              ) : (
-                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 flex items-center gap-1 shrink-0">
-                  <Lock className="w-3.5 h-3.5" /> Locked
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between items-baseline">
-                <span className="text-xs sm:text-sm font-bold text-slate-400">Target Omzet</span>
-                <span className="text-sm sm:text-base font-black text-slate-800 font-mono">Rp 525.000.000</span>
-              </div>
-              
-              <div className="flex justify-between items-center text-xs text-slate-500 font-bold mt-2">
-                <span>Progress</span>
-                <span className="font-mono">{Math.min((selectedMonthInfo.totalSales / 525000000) * 100, 100).toFixed(1)}%</span>
-              </div>
-              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 525000000 ? 'bg-purple-500' : 'bg-indigo-400'}`}
-                  style={{ width: `${Math.min((selectedMonthInfo.totalSales / 525000000) * 100, 100)}%` }}
-                />
-              </div>
-
-              <p className="text-xs font-semibold text-slate-500 mt-2">
-                {selectedMonthInfo.totalSales >= 525000000 ? (
-                  <span className="text-emerald-600 font-bold">🎉 Hebat! Target level 2 berhasil ditembus.</span>
-                ) : (
-                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(525000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk mencapai level ini.</span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          {/* Level 3 Card */}
-          <div className={`p-4 sm:p-5 rounded-2xl border transition-all sm:col-span-2 lg:col-span-1 ${
-            selectedMonthInfo.totalSales >= 600000000
-              ? 'bg-indigo-50/50 border-indigo-200/60 shadow-sm shadow-indigo-100/30'
-              : 'bg-slate-50/40 border-slate-100'
-          }`}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-2">
-                <div className={`p-2 rounded-xl shrink-0 ${
-                  selectedMonthInfo.totalSales >= 600000000 ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'
-                }`}>
-                  <Trophy className="w-4 h-4" />
-                </div>
-                <div>
-                  <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 3</h5>
-                  <p className="text-[10px] sm:text-xs text-indigo-800 font-bold mt-1">Sertifikasi Gold</p>
                 </div>
               </div>
               {selectedMonthInfo.totalSales >= 600000000 ? (
@@ -809,16 +697,128 @@ export default function SalesSummary({
               </div>
               <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div 
-                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 600000000 ? 'bg-indigo-600' : 'bg-indigo-500'}`}
+                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 600000000 ? 'bg-amber-500' : 'bg-indigo-400'}`}
                   style={{ width: `${Math.min((selectedMonthInfo.totalSales / 600000000) * 100, 100)}%` }}
                 />
               </div>
 
               <p className="text-xs font-semibold text-slate-500 mt-2">
                 {selectedMonthInfo.totalSales >= 600000000 ? (
+                  <span className="text-emerald-600 font-bold">🎉 Selamat! Target level 1 terlampaui.</span>
+                ) : (
+                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(600000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk mencapai level ini.</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Level 2 Card */}
+          <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
+            selectedMonthInfo.totalSales >= 700000000
+              ? 'bg-purple-50/50 border-purple-200/60 shadow-sm shadow-purple-100/30'
+              : 'bg-slate-50/40 border-slate-100'
+          }`}>
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <div className={`p-2 rounded-xl shrink-0 ${
+                  selectedMonthInfo.totalSales >= 700000000 ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-400'
+                }`}>
+                  <Trophy className="w-4 h-4" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 2</h5>
+                  <p className="text-[10px] sm:text-xs text-purple-800 font-bold mt-1">Sertifikasi Silver</p>
+                </div>
+              </div>
+              {selectedMonthInfo.totalSales >= 700000000 ? (
+                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200/40 flex items-center gap-1 shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Achieved
+                </span>
+              ) : (
+                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 flex items-center gap-1 shrink-0">
+                  <Lock className="w-3.5 h-3.5" /> Locked
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs sm:text-sm font-bold text-slate-400">Target Omzet</span>
+                <span className="text-sm sm:text-base font-black text-slate-800 font-mono">Rp 700.000.000</span>
+              </div>
+              
+              <div className="flex justify-between items-center text-xs text-slate-500 font-bold mt-2">
+                <span>Progress</span>
+                <span className="font-mono">{Math.min((selectedMonthInfo.totalSales / 700000000) * 100, 100).toFixed(1)}%</span>
+              </div>
+              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 700000000 ? 'bg-purple-500' : 'bg-indigo-400'}`}
+                  style={{ width: `${Math.min((selectedMonthInfo.totalSales / 700000000) * 100, 100)}%` }}
+                />
+              </div>
+
+              <p className="text-xs font-semibold text-slate-500 mt-2">
+                {selectedMonthInfo.totalSales >= 700000000 ? (
+                  <span className="text-emerald-600 font-bold">🎉 Hebat! Target level 2 berhasil ditembus.</span>
+                ) : (
+                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(700000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk mencapai level ini.</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Level 3 Card */}
+          <div className={`p-4 sm:p-5 rounded-2xl border transition-all sm:col-span-2 lg:col-span-1 ${
+            selectedMonthInfo.totalSales >= 800000000
+              ? 'bg-indigo-50/50 border-indigo-200/60 shadow-sm shadow-indigo-100/30'
+              : 'bg-slate-50/40 border-slate-100'
+          }`}>
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <div className={`p-2 rounded-xl shrink-0 ${
+                  selectedMonthInfo.totalSales >= 800000000 ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'
+                }`}>
+                  <Trophy className="w-4 h-4" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider leading-none">Target Level 3</h5>
+                  <p className="text-[10px] sm:text-xs text-indigo-800 font-bold mt-1">Sertifikasi Gold</p>
+                </div>
+              </div>
+              {selectedMonthInfo.totalSales >= 800000000 ? (
+                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200/40 flex items-center gap-1 shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Achieved
+                </span>
+              ) : (
+                <span className="text-[10px] sm:text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 flex items-center gap-1 shrink-0">
+                  <Lock className="w-3.5 h-3.5" /> Locked
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs sm:text-sm font-bold text-slate-400">Target Omzet</span>
+                <span className="text-sm sm:text-base font-black text-slate-800 font-mono">Rp 800.000.000</span>
+              </div>
+              
+              <div className="flex justify-between items-center text-xs text-slate-500 font-bold mt-2">
+                <span>Progress</span>
+                <span className="font-mono">{Math.min((selectedMonthInfo.totalSales / 800000000) * 100, 100).toFixed(1)}%</span>
+              </div>
+              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-700 ${selectedMonthInfo.totalSales >= 800000000 ? 'bg-indigo-600' : 'bg-indigo-500'}`}
+                  style={{ width: `${Math.min((selectedMonthInfo.totalSales / 800000000) * 100, 100)}%` }}
+                />
+              </div>
+
+              <p className="text-xs font-semibold text-slate-500 mt-2">
+                {selectedMonthInfo.totalSales >= 800000000 ? (
                   <span className="text-emerald-600 font-bold">🏆 Luar Biasa! Anda melampaui Target Utama Level 3!</span>
                 ) : (
-                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(600000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk melampaui target utama.</span>
+                  <span>Butuh <strong className="text-slate-600 font-bold">{formatRupiahCompact(800000000 - selectedMonthInfo.totalSales)}</strong> lagi untuk melampaui target utama.</span>
                 )}
               </p>
             </div>

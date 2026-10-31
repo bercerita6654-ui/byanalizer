@@ -86,22 +86,27 @@ export function parseCSVDate(dateStr: string): string | null {
   return parseIndonesianDate(clean);
 }
 
-// Convert Indonesian textual dates like "28 Mei 26" to YYYY-MM-DD
+// Convert Indonesian or English textual dates like "28 Mei 26" or "31-Oct-2026" to YYYY-MM-DD
 export function parseIndonesianDate(dateStr: string): string | null {
   if (!dateStr) return null;
   const cleanStr = dateStr.trim().replace(/\s+/g, ' ');
-  const parts = cleanStr.split(' ');
+  let parts = cleanStr.split(' ');
   if (parts.length !== 3) {
-    // Check if it's in DD/MM/YYYY format or similar
-    const slashParts = cleanStr.split(/[-/]/);
-    if (slashParts.length === 3) {
-      const day = slashParts[0].padStart(2, '0');
-      const month = slashParts[1].padStart(2, '0');
-      let year = slashParts[2];
-      if (year.length === 2) year = '20' + year;
-      return `${year}-${month}-${day}`;
+    // Check if it is hyphen separated e.g. "31-Oct-2026" or "31/Oct/2026"
+    const hypParts = cleanStr.split(/[-/]/);
+    if (hypParts.length === 3) {
+      parts = hypParts;
+    } else {
+      const slashParts = cleanStr.split(/[-/]/);
+      if (slashParts.length === 3) {
+        const day = slashParts[0].padStart(2, '0');
+        const month = slashParts[1].padStart(2, '0');
+        let year = slashParts[2];
+        if (year.length === 2) year = '20' + year;
+        return `${year}-${month}-${day}`;
+      }
+      return null;
     }
-    return null;
   }
 
   const [dayStr, monthStr, yearStr] = parts;

@@ -19,7 +19,7 @@ import {
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const PRODUCTS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=68677243&single=true&output=csv';
+const PRODUCTS_CSV_URL = 'https://docs.google.com/spreadsheets/d/14m_brb6JFuZtVlkaWVSEjRJyOwdlD2zrE8jz0uBL4yI/export?format=csv&gid=2043457379';
 const STOCK_LIST_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8ACyi03DJ77mANO19x_hJV82Xs8rNBBLyT9IIGc1tgYGNrv9WMufjm940iEPx4QU6Eta6T8Ekv2-X/pub?gid=1285691610&single=true&output=csv';
 
 // Helper functions for Indonesian date/month formatting and Mon-Sun week calculations
